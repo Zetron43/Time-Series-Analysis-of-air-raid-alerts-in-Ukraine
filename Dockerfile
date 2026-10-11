@@ -1,19 +1,25 @@
-FROM python:3.11-slim
+FROM python:3.13-slim
 
-# Встановлюємо системні шрифти для коректного рендерингу зображень Pillow на Linux
+# Environment settings for reliable stdout flushing in Railway / Docker logs
+ENV PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+# Install system fonts and certificates for Pillow rendering on Linux
 RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-dejavu-core \
     fonts-liberation \
+    ca-certificates \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
-# Копіюємо та встановлюємо залежності
+# Install dependencies
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
 
-# Копіюємо код проєкту
+# Copy project source code
 COPY . .
 
-# Запуск бота
+# Run Telegram Bot
 CMD ["python", "bot.py"]

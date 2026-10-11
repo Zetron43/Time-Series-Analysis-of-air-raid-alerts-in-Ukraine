@@ -1,6 +1,25 @@
-.env
+# Virtual environment
 .venv/
+venv/
+ENV/
+
+# Environment and sensitive keys
+.env
+*.env.local
+s.env.txt
+
+# Python bytecode & cache
 __pycache__/
-*.pyc
-reports/*.png
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# OS and IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Dynamic data and runtime artifacts
 data/telegram_cache/
+*.log
