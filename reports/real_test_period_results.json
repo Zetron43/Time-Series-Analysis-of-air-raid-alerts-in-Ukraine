@@ -1,0 +1,71 @@
+[
+  {
+    "region": "Kyiv City",
+    "events_count": 1055,
+    "test_intervals": 6582,
+    "test_alert_prevalence": 8.11,
+    "baseline": {
+      "pr_auc": 0.3551,
+      "brier_score": 0.0642,
+      "f1": 0.5655,
+      "recall": 56.6,
+      "precision": 56.6,
+      "onset_pr_auc": 0.0279
+    },
+    "lightgbm": {
+      "pr_auc": 0.4831,
+      "brier_score": 0.0692,
+      "f1": 0.5543,
+      "recall": 51.1,
+      "precision": 60.5,
+      "onset_pr_auc": 0.0423
+    },
+    "onset_random_rate": 2.4
+  },
+  {
+    "region": "Kharkivska oblast",
+    "events_count": 25635,
+    "test_intervals": 6582,
+    "test_alert_prevalence": 93.38,
+    "baseline": {
+      "pr_auc": 0.9492,
+      "brier_score": 0.0853,
+      "f1": 0.9657,
+      "recall": 100.0,
+      "precision": 93.4,
+      "onset_pr_auc": 0.5239
+    },
+    "lightgbm": {
+      "pr_auc": 0.9637,
+      "brier_score": 0.0609,
+      "f1": 0.9652,
+      "recall": 99.9,
+      "precision": 93.4,
+      "onset_pr_auc": 0.5608
+    },
+    "onset_random_rate": 50.69
+  },
+  {
+    "region": "Odeska oblast",
+    "events_count": 8910,
+    "test_intervals": 6582,
+    "test_alert_prevalence": 27.01,
+    "baseline": {
+      "pr_auc": 0.435,
+      "brier_score": 0.2146,
+      "f1": 0.563,
+      "recall": 56.3,
+      "precision": 56.3,
+      "onset_pr_auc": 0.116
+    },
+    "lightgbm": {
+      "pr_auc": 0.5155,
+      "brier_score": 0.1796,
+      "f1": 0.5649,
+      "recall": 56.8,
+      "precision": 56.2,
+      "onset_pr_auc": 0.137
+    },
+    "onset_random_rate": 10.66
+  }
+]
