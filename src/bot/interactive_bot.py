@@ -954,10 +954,12 @@ if __name__ == "__main__":
 
     # 2. Check environment variable
     if not token:
-        token = os.environ.get("TELEGRAM_BOT_TOKEN")
-
-    if token:
-        token = token.strip().strip('"').strip("'")
+        for k in ["TELEGRAM_BOT_TOKEN", "BOT_TOKEN", "TELEGRAM_TOKEN", "TOKEN"]:
+            val = os.environ.get(k)
+            if val:
+                token = val.strip().strip('"').strip("'").strip()
+                if is_valid_token(token):
+                    break
 
     is_live = "--live" in sys.argv or (bool(token) and "--simulate" not in sys.argv and len(sys.argv) == 1)
 

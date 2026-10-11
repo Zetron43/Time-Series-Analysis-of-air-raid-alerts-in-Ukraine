@@ -6,6 +6,7 @@ Compatible with Railway, Docker, Procfile, and local execution.
 import os
 import sys
 from pathlib import Path
+from typing import Optional
 
 # Ensure project root is in sys.path
 BASE_DIR = Path(__file__).resolve().parent
@@ -20,12 +21,22 @@ from src.bot.interactive_bot import (
 )
 
 
+def get_bot_token() -> Optional[str]:
+    """Retrieves and normalizes Telegram Bot token from any common environment variable name."""
+    candidates = ["TELEGRAM_BOT_TOKEN", "BOT_TOKEN", "TELEGRAM_TOKEN", "TOKEN"]
+    for key in candidates:
+        raw = os.environ.get(key)
+        if raw:
+            cleaned = raw.strip().strip('"').strip("'").strip()
+            if is_valid_token(cleaned):
+                return cleaned
+    return None
+
+
 def main():
     load_env_file()
 
-    token = os.environ.get("TELEGRAM_BOT_TOKEN")
-    if token:
-        token = token.strip().strip('"').strip("'")
+    token = get_bot_token()
 
     # Check CLI arguments
     if "--simulate" in sys.argv:
@@ -43,15 +54,15 @@ def main():
         return
 
     # Live bot mode (default in Docker / Railway)
-    if not is_valid_token(token):
+    if not token or not is_valid_token(token):
         print("=" * 70, flush=True)
-        print("[!] Помилка: Змінна середовища TELEGRAM_BOT_TOKEN не задана або некоректна.", flush=True)
-        print("    Для запуску в Railway додайте TELEGRAM_BOT_TOKEN у розділі 'Variables'.", flush=True)
-        print("    Для локального запуску створіть файл .env або встановіть змінну в терміналі.", flush=True)
+        print("[!] Помилка: Змінна середовища для токена (TELEGRAM_BOT_TOKEN або BOT_TOKEN) не знайдена або некоректна.", flush=True)
+        print("    Перевірте розділ 'Variables' у вашому проєкті Railway.", flush=True)
+        print("    Підтримуються назви: TELEGRAM_BOT_TOKEN, BOT_TOKEN.", flush=True)
         print("=" * 70, flush=True)
         sys.exit(1)
 
-    print("[+] TELEGRAM_BOT_TOKEN виявлено. Запуск бота в режимі реального часу...", flush=True)
+    print("[+] Токен бота успішно виявлено. Запуск бота в режимі реального часу (long polling)...", flush=True)
     run_live_polling(token)
 
 
