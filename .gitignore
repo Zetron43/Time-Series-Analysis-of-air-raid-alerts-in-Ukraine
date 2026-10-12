@@ -23,3 +23,9 @@ Thumbs.db
 # Dynamic data and runtime artifacts
 data/telegram_cache/
 *.log
+
+# Project dialogue logs and reports (kept locally only)
+project_dialogue_log.docx
+project_dialogue_log.txt
+*.docx
+
