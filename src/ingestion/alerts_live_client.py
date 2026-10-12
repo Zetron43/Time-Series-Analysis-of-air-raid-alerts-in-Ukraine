@@ -25,6 +25,20 @@ except Exception:
     KYIV_TZ = timezone(timedelta(hours=3))
 
 
+SINGLE_DRONE_PATTERNS = [
+    re.compile(r"\b1\s*х?\s*(?:бпла|дрон|шахед|безпілотник)", re.IGNORECASE),
+    re.compile(r"\b(один|поодинокий|одиночний)\s*(?:бпла|дрон|шахед|безпілотник)", re.IGNORECASE),
+    re.compile(r"\b(останній|залишив?ся\s+1|залишив?ся\s+один)\b", re.IGNORECASE),
+    re.compile(r"\bдорозвідк\w*", re.IGNORECASE),
+]
+
+GROUP_DRONE_PATTERNS = [
+    re.compile(r"\b(груп[аие]|декілька\s+груп|кілька\s+груп|чергова\s+група)\b", re.IGNORECASE),
+    re.compile(r"\b([2-9]|\d{2,})\s*х?\s*(?:бпла|дрон|шахед|безпілотник)", re.IGNORECASE),
+    re.compile(r"\b(декілька|кілька|багато|масован\w+|хвил[яі]|табун|рій)\s*(?:бпла|дрон|шахед|безпілотник)?", re.IGNORECASE),
+]
+
+
 class AlertsInUaLiveClient:
     """Live parser for alerts.in.ua sitrep feed with cache TTL."""
 
@@ -316,7 +330,14 @@ class AlertsInUaLiveClient:
                 all_threat_lines.append(line[1:].strip())
 
         threats = {
-            "shahed": {"active": False, "desc": "🟢 Активності не зафіксовано", "prob": 0.05},
+            "shahed": {
+                "active": False,
+                "desc": "🟢 Активності не зафіксовано",
+                "prob": 0.05,
+                "scale_type": "none",
+                "scale_title": "🟢 Активності БпЛА не зафіксовано",
+                "detected_quantity_text": "Загроза відсутня",
+            },
             "ballistics": {"active": False, "desc": "🟢 Загроза відсутня", "prob": 0.02},
             "aviation": {"active": False, "desc": "🟢 Пусків КАБ не виявлено", "prob": 0.03},
             "mig31": {"active": False, "desc": "🟢 Борти МіГ-31К на аеродромах", "prob": 0.01},
@@ -339,11 +360,21 @@ class AlertsInUaLiveClient:
             threats["mig31"]["desc"] = "🔴 <b>Зліт МіГ-31К</b>: ракетна небезпека по всій території України"
             threats["mig31"]["prob"] = 0.90
 
-        # Drones
+        # Drones with scale detection (Single vs Group)
         if any(w in sec4_6_lower for w in ["drone", "бпла", "шахед", "uav", "безпілот"]):
             threats["shahed"]["active"] = True
-            threats["shahed"]["desc"] = "🟡 <b>БпЛА В ПОВІТРІ</b>: фіксація ударних дронів у повітряному просторі"
-            threats["shahed"]["prob"] = 0.75
+            is_group = any(p.search(sec4_6_lower) for p in GROUP_DRONE_PATTERNS)
+            is_single = any(p.search(sec4_6_lower) for p in SINGLE_DRONE_PATTERNS)
+            if is_group:
+                threats["shahed"]["scale_type"] = "group"
+                threats["shahed"]["scale_title"] = "🚨 Група БпЛА (декілька цілей / хвиля)"
+                threats["shahed"]["desc"] = "🚨 <b>ГРУПА ДРОНІВ</b>: ешелонована або масована атака (орієнтовно 1–2+ години)"
+                threats["shahed"]["prob"] = 0.85
+            else:
+                threats["shahed"]["scale_type"] = "single"
+                threats["shahed"]["scale_title"] = "⚠️ Поодинокий БпЛА (1 дрон)"
+                threats["shahed"]["desc"] = "⚠️ <b>ПООДИНОКИЙ ДРОН (1 БпЛА)</b>: швидкісний транзит / локальна робота ППО (15–30 хв)"
+                threats["shahed"]["prob"] = 0.65
 
         # Strategic aviation / cruise missiles
         if any(w in sec4_6_lower for w in ["ту-95", "ту-22", "калібр", "х-101", "х-59", "х-69", "cruise missile"]):
@@ -357,7 +388,14 @@ class AlertsInUaLiveClient:
             if any(k in line_lower for k in search_keys):
                 threats["raw_messages"].append(line)
                 if any(w in line_lower for w in ["drone", "бпла", "шахед", "uav"]):
-                    threats["shahed"]["desc"] = f"🔴 <b>ПРЯМИЙ ВЕКТОР</b>: {line[:120]}"
+                    if any(p.search(line_lower) for p in GROUP_DRONE_PATTERNS):
+                        threats["shahed"]["scale_type"] = "group"
+                        threats["shahed"]["scale_title"] = "🚨 Група БпЛА над областю"
+                        threats["shahed"]["desc"] = f"🚨 <b>ГРУПА ДРОНІВ НАД ОБЛАСТЮ</b>: {line[:120]}"
+                    else:
+                        threats["shahed"]["scale_type"] = "single"
+                        threats["shahed"]["scale_title"] = "⚠️ Поодинокий БпЛА (1 дрон) над областю"
+                        threats["shahed"]["desc"] = f"⚠️ <b>ПООДИНОКИЙ ДРОН (1 БпЛА)</b>: {line[:120]}"
                 if any(w in line_lower for w in ["ballistic", "балістик", "іскандер"]):
                     threats["ballistics"]["desc"] = f"🔴 <b>БАЛІСТИКА ПО РЕГІОНУ</b>: {line[:120]}"
 

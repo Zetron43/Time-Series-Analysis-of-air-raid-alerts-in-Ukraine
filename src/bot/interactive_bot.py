@@ -35,7 +35,12 @@ if hasattr(sys.stdout, "reconfigure"):
 if hasattr(sys.stderr, "reconfigure"):
     sys.stderr.reconfigure(encoding="utf-8", errors="backslashreplace")
 
-from src.ingestion.alerts_live_client import AlertsInUaLiveClient, KYIV_TZ
+from src.ingestion.alerts_live_client import (
+    AlertsInUaLiveClient,
+    KYIV_TZ,
+    SINGLE_DRONE_PATTERNS,
+    GROUP_DRONE_PATTERNS,
+)
 from src.ingestion.telegram_multi_channel import (
     fetch_all_monitoring_channels,
     extract_multi_channel_threats,
@@ -417,6 +422,159 @@ AVAILABLE_HORIZONS = {
 }
 
 
+def compute_dynamic_operational_probability(
+    region_code: str,
+    horizon_minutes: int,
+    live_status: Dict[str, Any],
+    threats: Dict[str, Any],
+) -> Tuple[float, str]:
+    """Calculates realistic survival/arrival probability based on threat type, region geometry, and drone scale (single vs group)."""
+    west_regions = {"lviv", "volyn", "rivne", "ternopil", "ivano_frankivsk", "khmelnytskyi", "zakarpattia", "chernivtsi"}
+    border_regions = {"kharkiv", "sumy", "zaporizhia", "dnipro", "chernihiv", "donetsk", "kherson", "mykolaiv"}
+
+    is_west = region_code in west_regions
+    is_border = region_code in border_regions
+
+    shahed = threats.get("shahed", {})
+    scale_type = shahed.get("scale_type", "none")
+    drone_active = shahed.get("active", False)
+    ballistic_active = threats.get("ballistics", {}).get("active", False)
+    mig31_active = threats.get("mig31", {}).get("active", False)
+
+    is_alert = live_status.get("is_alert", False)
+    alert_level = live_status.get("alert_level", "YELLOW")
+
+    # 1. Active Alert: Probability that alert is STILL CONTINUING at horizon t + horizon_minutes
+    if is_alert:
+        if alert_level == "NOMINAL":
+            return 0.985, "Постійна номінальна тривога для тимчасово окупованої території."
+
+        # Drone Threat (Yellow Alert or Shahed active)
+        if alert_level == "YELLOW" or drone_active:
+            if scale_type == "single":
+                if is_west:
+                    # Single drone in Western Ukraine: fast intercept or transit (15-30 mins)
+                    prob_curve = {15: 0.62, 30: 0.28, 60: 0.12, 120: 0.052}
+                    prob = prob_curve.get(horizon_minutes, 0.20)
+                    if horizon_minutes >= 60:
+                        expl = "⚠️ Зафіксовано поодинокий БпЛА (1 дрон). Швидкість Shahed ~180 км/год — типовий час транзиту чи збиття у західних областях складає 15–30 хв; ймовірність збереження тривоги на 1–2 год вкрай низька (до 5–12%)."
+                    else:
+                        expl = "⚠️ Поодинокий БпЛА (1 дрон): активна робота мобільних вогневих груп ППО, висока ймовірність швидкого відбою."
+                    return prob, expl
+                elif is_border:
+                    prob_curve = {15: 0.78, 30: 0.55, 60: 0.30, 120: 0.15}
+                    prob = prob_curve.get(horizon_minutes, 0.40)
+                    expl = "⚠️ Поодинокий БпЛА у прикордонні: можливе маневрування вздовж лінії фронту."
+                    return prob, expl
+                else:  # Central / North
+                    prob_curve = {15: 0.72, 30: 0.45, 60: 0.20, 120: 0.08}
+                    prob = prob_curve.get(horizon_minutes, 0.30)
+                    expl = "⚠️ Поодинокий БпЛА: очікуваний час збиття або виходу з області 25–40 хв."
+                    return prob, expl
+            else:  # Group of drones (scale_type == 'group' or multi-drone wave)
+                if is_west:
+                    prob_curve = {15: 0.92, 30: 0.82, 60: 0.52, 120: 0.25}
+                    prob = prob_curve.get(horizon_minutes, 0.55)
+                    expl = "🚨 Зафіксовано групу/хвилю БпЛА (декілька цілей). Ешелонований підліт збільшує час перебування в укриттях."
+                    return prob, expl
+                elif is_border:
+                    prob_curve = {15: 0.96, 30: 0.90, 60: 0.78, 120: 0.62}
+                    prob = prob_curve.get(horizon_minutes, 0.75)
+                    expl = "🚨 Група ударних дронів біля кордону: висока ймовірність тривалої масованої атаки."
+                    return prob, expl
+                else:  # Central / North
+                    prob_curve = {15: 0.94, 30: 0.85, 60: 0.68, 120: 0.48}
+                    prob = prob_curve.get(horizon_minutes, 0.65)
+                    expl = "🚨 Група ударних БпЛА курсом через центральні області: підвищений ризик затяжної тривоги."
+                    return prob, expl
+
+        # Pure Ballistics (fast-decay: typical 20-35 mins)
+        if ballistic_active and not drone_active:
+            prob_curve = {15: 0.85, 30: 0.40, 60: 0.12, 120: 0.04}
+            prob = prob_curve.get(horizon_minutes, 0.25)
+            expl = "🚀 Балістична загроза зазвичай триває 20–35 хв. Тривання понад годину без повторних пусків нетипове."
+            return prob, expl
+
+        # MiG-31K (25-40 mins patrol)
+        if mig31_active:
+            prob_curve = {15: 0.90, 30: 0.62, 60: 0.25, 120: 0.10}
+            prob = prob_curve.get(horizon_minutes, 0.35)
+            expl = "✈️ Політ МіГ-31К без дозаправки триває 25–40 хв. Понад 1–2 год тривога триває лише за дозаправки в небі."
+            return prob, expl
+
+        # Artillery
+        if alert_level == "ARTILLERY":
+            prob_curve = {15: 0.80, 30: 0.52, 60: 0.26, 120: 0.09}
+            prob = prob_curve.get(horizon_minutes, 0.30)
+            expl = "💣 Загроза артобстрілу у прифронтовій зоні."
+            return prob, expl
+
+        # General Red / Missile alert
+        prob_curve = {15: 0.88, 30: 0.70, 60: 0.42, 120: 0.18}
+        prob = prob_curve.get(horizon_minutes, 0.45)
+        expl = "🛑 Ракетна загроза / активність стратегічної або тактичної авіації."
+        return prob, expl
+
+    # 2. Region is CLEAR (Відбій): Probability of a NEW alert starting in horizon
+    else:
+        if mig31_active:
+            prob_curve = {15: 0.85, 30: 0.70, 60: 0.40, 120: 0.20}
+            prob = prob_curve.get(horizon_minutes, 0.50)
+            expl = "✈️ Зліт МіГ-31К: висока ймовірність оголошення тривоги по всій Україні."
+            return prob, expl
+
+        if ballistic_active:
+            if is_border:
+                prob_curve = {15: 0.68, 30: 0.55, 60: 0.30, 120: 0.15}
+            elif is_west:
+                prob_curve = {15: 0.18, 30: 0.14, 60: 0.08, 120: 0.04}
+            else:
+                prob_curve = {15: 0.35, 30: 0.25, 60: 0.15, 120: 0.08}
+            prob = prob_curve.get(horizon_minutes, 0.20)
+            expl = "🚀 Зафіксовано загрозу балістики в повітряному просторі."
+            return prob, expl
+
+        if drone_active:
+            if scale_type == "single":
+                if is_west:
+                    prob_curve = {15: 0.06, 30: 0.10, 60: 0.12, 120: 0.06}
+                    expl = "⚠️ Поодинокий БпЛА в іншому регіоні: низька ймовірність досягнення заходу України."
+                elif is_border:
+                    prob_curve = {15: 0.25, 30: 0.32, 60: 0.26, 120: 0.18}
+                    expl = "⚠️ Поодинокий БпЛА: можливий підліт до прикордонних районів."
+                else:
+                    prob_curve = {15: 0.14, 30: 0.22, 60: 0.18, 120: 0.10}
+                    expl = "⚠️ Поодинокий БпЛА курсом у сусідніх секторах."
+                prob = prob_curve.get(horizon_minutes, 0.12)
+                return prob, expl
+            else:  # group
+                if is_west:
+                    prob_curve = {15: 0.12, 30: 0.25, 60: 0.42, 120: 0.52}
+                    expl = "🚨 Група БпЛА в Україні: ударні дрони можуть досягти західних областей через 1–2 години."
+                elif is_border:
+                    prob_curve = {15: 0.45, 30: 0.60, 60: 0.74, 120: 0.80}
+                    expl = "🚨 Запуск нових груп БпЛА через кордон: високий ризик нової тривоги."
+                else:
+                    prob_curve = {15: 0.28, 30: 0.46, 60: 0.62, 120: 0.68}
+                    expl = "🚨 Група БпЛА рухається в напрямку центральних областей."
+                prob = prob_curve.get(horizon_minutes, 0.35)
+                return prob, expl
+
+        # Calm / No immediate threats
+        if is_border:
+            prob_curve = {15: 0.18, 30: 0.24, 60: 0.28, 120: 0.34}
+            expl = "Прикордонна зона: фоновий ризик локальної активності ворожої авіації/артилерії."
+        elif is_west:
+            prob_curve = {15: 0.03, 30: 0.04, 60: 0.06, 120: 0.09}
+            expl = "Оперативна обстановка спокійна. Загроз для західного регіону наразі не виявлено."
+        else:
+            prob_curve = {15: 0.06, 30: 0.08, 60: 0.11, 120: 0.15}
+            expl = "Обстановка спокійна. Повітряний простір чистий."
+
+        prob = prob_curve.get(horizon_minutes, 0.08)
+        return prob, expl
+
+
 class ThreatAnalyzer:
     """Evaluates real-time alerts from alerts.in.ua and live OSINT from @kpszsu and @war_monitor."""
 
@@ -441,43 +599,46 @@ class ThreatAnalyzer:
 
         threat_details = live_status["live_threats"]
 
-        # 2. Probability calculation based on live reality and threat factors
-        if live_status["is_alert"]:
-            # Region is currently under active sirens/threat
-            if live_status["alert_level"] == "NOMINAL":
-                base_prob = 0.98
-            elif live_status["alert_level"] == "RED":
-                base_prob = 0.92
-            elif live_status["alert_level"] == "YELLOW":
-                base_prob = 0.82
-            elif live_status["alert_level"] == "ARTILLERY":
-                base_prob = 0.78
-            else:
-                base_prob = 0.85
-            overall_prob = float(np.clip(base_prob * (1.0 - (horizon_info["minutes"] - 15) * 0.001), 0.70, 0.99))
-        else:
-            # Region currently clear (Відбій) -> probability of NEW alert starting
-            has_ballistic_threat = threat_details["ballistics"]["active"]
-            has_mig31_threat = threat_details["mig31"]["active"]
-            has_shahed_threat = threat_details["shahed"]["active"]
+        # 2. Check live OSINT channels (@kpszsu, @war_monitor, @raketa_trevoga) for additional drone scale intelligence
+        try:
+            tg_df = fetch_all_monitoring_channels(max_pages=2)
+            if not tg_df.empty:
+                west_keywords = ["захід", "львів", "волинь", "тернопіль", "рівнен", "хмельницьк", "франківськ", "буковин", "закарпатт"]
+                is_west_reg = region_code in ["lviv", "volyn", "rivne", "ternopil", "ivano_frankivsk", "khmelnytskyi", "zakarpattia", "chernivtsi"]
 
-            border_regions = ["kharkiv", "sumy", "zaporizhia", "dnipro", "chernihiv", "donetsk", "kherson", "mykolaiv"]
-            is_border = region_code in border_regions
+                for _, r in tg_df.tail(25).iterrows():
+                    msg_txt = r["text"]
+                    msg_lower = msg_txt.lower()
 
-            if has_mig31_threat:
-                base_prob = 0.85
-            elif has_ballistic_threat and is_border:
-                base_prob = 0.70
-            elif has_ballistic_threat:
-                base_prob = 0.38
-            elif has_shahed_threat and is_border:
-                base_prob = 0.45
-            elif is_border:
-                base_prob = 0.22
-            else:
-                base_prob = 0.08
+                    is_match = any(k in msg_lower for k in search_keys)
+                    if not is_match and is_west_reg and any(w in msg_lower for w in west_keywords):
+                        is_match = True
 
-            overall_prob = float(np.clip(base_prob * horizon_info["factor"], 0.04, 0.94))
+                    if is_match and any(w in msg_lower for w in ["бпла", "шахед", "дрон", "безпілот"]):
+                        threat_details["shahed"]["active"] = True
+                        if any(p.search(msg_lower) for p in GROUP_DRONE_PATTERNS):
+                            threat_details["shahed"]["scale_type"] = "group"
+                            threat_details["shahed"]["scale_title"] = "🚨 Група БпЛА (декілька цілей / хвиля)"
+                            threat_details["shahed"]["desc"] = f"🚨 <b>ГРУПА ДРОНІВ</b>: {msg_txt[:120]}"
+                        else:
+                            if threat_details["shahed"].get("scale_type") != "group":
+                                threat_details["shahed"]["scale_type"] = "single"
+                                threat_details["shahed"]["scale_title"] = "⚠️ Поодинокий БпЛА (1 дрон)"
+                                threat_details["shahed"]["desc"] = f"⚠️ <b>ПООДИНОКИЙ ДРОН (1 БпЛА)</b>: {msg_txt[:120]}"
+
+                        raw_tag = f"[{r['channel']}] {msg_txt[:120]}"
+                        if raw_tag not in threat_details["raw_messages"]:
+                            threat_details["raw_messages"].append(raw_tag)
+        except Exception:
+            pass
+
+        # 3. Dynamic operational probability calculation
+        overall_prob, prob_expl = compute_dynamic_operational_probability(
+            region_code=region_code,
+            horizon_minutes=horizon_info["minutes"],
+            live_status=live_status,
+            threats=threat_details,
+        )
 
         return {
             "region_code": region_code,
@@ -487,6 +648,7 @@ class ThreatAnalyzer:
             "current_kyiv_time": now_kyiv,
             "target_kyiv_time": target_kyiv,
             "overall_probability": overall_prob,
+            "prob_explanation": prob_expl,
             "live_status": live_status,
             "threats": threat_details,
         }
@@ -544,6 +706,9 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
         f"Статус оцінки: {badge} {progress}",
     ])
 
+    if data.get("prob_explanation"):
+        lines.append(f"💡 <i>{data['prob_explanation']}</i>")
+
     # Per-raion status breakdown
     raions = live.get("raions", [])
     if raions:
@@ -555,6 +720,12 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
         for r in raions:
             lines.append(f"• {r['badge']} <b>{r['name']}</b> — {r['status']}")
 
+    shahed_desc = threats['shahed']['desc']
+    if threats['shahed'].get("scale_title") and "не зафіксовано" not in threats['shahed']["scale_title"].lower():
+        shahed_entry = f"🛸 <b>Ударні дрони (Shahed):</b>\n   └ {shahed_desc}\n   └ 🎯 <b>Масштаб атаки:</b> {threats['shahed']['scale_title']}"
+    else:
+        shahed_entry = f"🛸 <b>Ударні дрони (Shahed):</b>\n   └ {shahed_desc}"
+
     lines.extend([
         "",
         "━━━━━━━━━━━━━━━━━━━━━━",
@@ -562,7 +733,7 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
         "",
         f"🚀 <b>Балістичні ракети:</b>\n   └ {threats['ballistics']['desc']}",
         "",
-        f"🛸 <b>Ударні дрони (Shahed):</b>\n   └ {threats['shahed']['desc']}",
+        shahed_entry,
         "",
         f"💣 <b>Тактична авіація (КАБ):</b>\n   └ {threats['aviation']['desc']}",
         "",
