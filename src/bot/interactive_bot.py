@@ -22,7 +22,7 @@ from pathlib import Path
 import re
 import sys
 import time
-from typing import Optional, Dict, Any, List
+from typing import Optional, Dict, Any, List, Tuple
 import urllib.request
 import urllib.parse
 import urllib.error
