@@ -25,6 +25,7 @@ import time
 from typing import Optional, Dict, Any, List
 import urllib.request
 import urllib.parse
+import urllib.error
 from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
@@ -742,6 +743,16 @@ def telegram_api_call(token: str, method: str, payload: dict) -> dict:
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             return json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        details = str(exc)
+        try:
+            raw = exc.read().decode("utf-8")
+            body = json.loads(raw)
+            details = body.get("description", raw)
+        except Exception:
+            pass
+        print(f"[-] Telegram API Error ({method}): HTTP {exc.code} - {details}", flush=True)
+        return {"ok": False, "error_code": exc.code, "description": details}
     except Exception as exc:
         print(f"[-] Telegram API Error ({method}): {exc}", flush=True)
         return {"ok": False, "description": str(exc)}
@@ -756,7 +767,15 @@ def run_live_polling(token: str):
     analyzer = ThreatAnalyzer()
     offset = 0
 
-    # Test token
+    # 1. Reset any stale webhook and drop pending updates on startup to prevent 409 Conflict
+    print("[*] Перевірка та видалення попередніх Webhook (drop_pending_updates=True)...", flush=True)
+    del_hook = telegram_api_call(token, "deleteWebhook", {"drop_pending_updates": True})
+    if del_hook.get("ok"):
+        print("[+] Webhook успішно скинуто. Long Polling активовано.", flush=True)
+    else:
+        print(f"[*] Стан Webhook: {del_hook.get('description')}", flush=True)
+
+    # 2. Test token
     me = telegram_api_call(token, "getMe", {})
     if not me.get("ok"):
         print(f"[!] Не вдалося підключитися до Telegram Bot API: {me.get('description')}", flush=True)
@@ -764,12 +783,27 @@ def run_live_polling(token: str):
     bot_user = me["result"]["username"]
     print(f"[+] Бот @{bot_user} успішно підключено та очікує повідомлень користувачів...\n", flush=True)
 
+    conflict_retry_count = 0
+
     while True:
         try:
             updates = telegram_api_call(token, "getUpdates", {"offset": offset, "timeout": 25})
             if not updates.get("ok"):
-                time.sleep(2)
+                desc = str(updates.get("description", ""))
+                err_code = updates.get("error_code")
+                # Handle HTTP 409 Conflict (e.g. another instance running or active webhook)
+                if err_code == 409 or "409" in desc or "Conflict" in desc:
+                    conflict_retry_count += 1
+                    wait_sec = min(5 + conflict_retry_count * 2, 20)
+                    print(f"[!] Конфлікт сесії 409 (активний Webhook або подвійний запуск бота).", flush=True)
+                    print(f"[*] Очищуємо Webhook та очікуємо {wait_sec} сек перед повтором...", flush=True)
+                    telegram_api_call(token, "deleteWebhook", {"drop_pending_updates": True})
+                    time.sleep(wait_sec)
+                else:
+                    time.sleep(2)
                 continue
+
+            conflict_retry_count = 0
 
             for u in updates.get("result", []):
                 offset = u["update_id"] + 1
