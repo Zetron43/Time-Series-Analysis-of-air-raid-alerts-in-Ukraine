@@ -1,0 +1,49 @@
+{
+  "timestamp_kyiv": "2026-10-21 20:01:46 (Київ)",
+  "counts": {
+    "alerts_in_ua_active_raions": 45,
+    "neptun_active_raions": 50,
+    "dimap_active_raions": 70,
+    "neptun_active_air_targets": 20,
+    "drones_with_gps": 20,
+    "drones_with_heading": 10,
+    "drones_with_trails": 2
+  },
+  "jaccard_similarity": {
+    "neptun_vs_alerts_in_ua": 0.7925,
+    "dimap_vs_alerts_in_ua": 0.6197,
+    "neptun_vs_dimap": 0.6216
+  },
+  "breakdown": {
+    "alerts_in_ua_sample": {
+      "Синельниківський район": "RED",
+      "Дніпровський район": "RED",
+      "Криворізький район": "RED",
+      "Нікопольський район": "RED",
+      "Кам'янський район": "RED",
+      "Павлоградський район": "RED",
+      "Маріупольський район": "YELLOW",
+      "Донецький район": "YELLOW"
+    },
+    "neptun_sample": {
+      "Бахмутський район": "YELLOW",
+      "Бердянський район": "RED",
+      "Бучанський район": "YELLOW",
+      "Василівський район": "RED",
+      "Вишгородський район": "YELLOW",
+      "Волноваський район": "YELLOW",
+      "Горлівський район": "YELLOW",
+      "Дніпровський район": "RED"
+    },
+    "dimap_sample": {
+      "Пологівський район": "RED",
+      "Чернігівський район": "YELLOW",
+      "м. Запоріжжя": "RED",
+      "Корюківський район": "YELLOW",
+      "Василівський район": "RED",
+      "Бердянський район": "RED",
+      "Мелітопольський район": "RED",
+      "Запорізький район": "RED"
+    }
+  }
+}

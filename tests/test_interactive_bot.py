@@ -173,3 +173,76 @@ def test_drone_regex_patterns():
     for g in group_samples:
         assert any(p.search(g) for p in GROUP_DRONE_PATTERNS)
 
+
+def test_raion_keyboards_and_callback_data_limits():
+    """Ensures all raion callback data strings are strictly within Telegram's 64-byte limit."""
+    from src.bot.interactive_bot import ALL_REGIONS, get_raions_keyboard, get_raion_horizon_keyboard
+
+    for reg_code, meta in ALL_REGIONS.items():
+        r_kb = get_raions_keyboard(reg_code)
+        assert "inline_keyboard" in r_kb
+        for row in r_kb["inline_keyboard"]:
+            for btn in row:
+                cb = btn["callback_data"]
+                assert len(cb.encode("utf-8")) <= 64, f"Callback {cb} exceeds 64 bytes"
+
+        raions = meta.get("raions", [])
+        if raions:
+            hrn_kb = get_raion_horizon_keyboard(reg_code, 0)
+            assert "inline_keyboard" in hrn_kb
+            for row in hrn_kb["inline_keyboard"]:
+                for btn in row:
+                    cb = btn["callback_data"]
+                    assert len(cb.encode("utf-8")) <= 64, f"Callback {cb} exceeds 64 bytes"
+
+
+def test_subscription_manager_flow(tmp_path):
+    """Verifies adding, removing, and cooldown of raion subscriptions."""
+    from src.bot.subscription_manager import UserSubscriptionManager
+    test_file = str(tmp_path / "subs.json")
+    mgr = UserSubscriptionManager(file_path=test_file)
+
+    assert mgr.get_user_subscriptions(12345) == []
+    added = mgr.add_subscription(12345, "Бучанський район")
+    assert added is True
+    assert mgr.get_user_subscriptions(12345) == ["Бучанський район"]
+
+    # Re-adding does not duplicate
+    added_again = mgr.add_subscription(12345, "Бучанський район")
+    assert added_again is False
+    assert len(mgr.get_user_subscriptions(12345)) == 1
+
+    # Cooldown check
+    assert mgr.should_notify(12345, "Бучанський район", "alarm_RED", cooldown_minutes=30) is True
+    mgr.mark_notified(12345, "Бучанський район", "alarm_RED")
+    assert mgr.should_notify(12345, "Бучанський район", "alarm_RED", cooldown_minutes=30) is False
+
+    # Removal
+    removed = mgr.remove_subscription(12345, "Бучанський район")
+    assert removed is True
+    assert mgr.get_user_subscriptions(12345) == []
+
+
+def test_map_renderer_generates_valid_png():
+    """Verifies that AlertMapRenderer creates a valid PNG byte stream."""
+    from rendering.alert_map_renderer import AlertMapRenderer
+    renderer = AlertMapRenderer()
+    png_bytes = renderer.render_map(horizon_minutes=30, highlight_raion="Львівський район")
+
+    assert isinstance(png_bytes, bytes)
+    assert len(png_bytes) > 50000  # Detailed map with 137 raions is >50 KB
+    assert png_bytes.startswith(b"\x89PNG\r\n\x1a\n")  # Standard PNG magic signature
+
+
+def test_benchmark_metrics_summary():
+    """Verifies that benchmark summary contains all 3 sources and Jaccard metrics."""
+    from src.bot.interactive_bot import format_sources_benchmark_summary
+    summary = format_sources_benchmark_summary()
+
+    assert "alerts.in.ua" in summary
+    assert "neptun.in.ua" in summary
+    assert "dimap.live" in summary
+    assert "Jaccard" in summary
+    assert "%" in summary
+
+

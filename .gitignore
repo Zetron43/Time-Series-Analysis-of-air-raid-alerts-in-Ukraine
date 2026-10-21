@@ -22,6 +22,8 @@ Thumbs.db
 
 # Dynamic data and runtime artifacts
 data/telegram_cache/
+data/user_subscriptions.json
+rendering/live_threats_map.png
 *.log
 
 # Project dialogue logs and reports (kept locally only)
