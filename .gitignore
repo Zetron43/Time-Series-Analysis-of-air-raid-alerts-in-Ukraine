@@ -23,6 +23,7 @@ Thumbs.db
 # Dynamic data and runtime artifacts
 data/telegram_cache/
 data/user_subscriptions.json
+data/pending_message_deletions.json
 rendering/live_threats_map.png
 *.log
 

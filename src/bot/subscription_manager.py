@@ -10,6 +10,8 @@ from datetime import datetime, timezone, timedelta
 import json
 import os
 from pathlib import Path
+import threading
+import time
 from typing import Dict, Any, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -123,3 +125,103 @@ class UserSubscriptionManager:
             note_id = f"{raion_name}::{event_key}"
             self._subscriptions[cid]["last_notifications"][note_id] = datetime.now(KYIV_TZ).isoformat()
             self._save()
+
+
+class AutoDeleteManager:
+    """Manages scheduled automatic deletion of raion alarm messages after 1 hour (3600s)."""
+
+    def __init__(self, file_path: Optional[str] = None):
+        if not file_path:
+            file_path = str(Path(__file__).resolve().parents[2] / "data" / "pending_message_deletions.json")
+        self.file_path = file_path
+        self._lock = threading.Lock()
+        self._pending: List[Dict[str, Any]] = []
+        self._load()
+
+    def _load(self):
+        p = Path(self.file_path)
+        if p.exists():
+            try:
+                with open(p, "r", encoding="utf-8") as f:
+                    self._pending = json.load(f)
+            except Exception:
+                self._pending = []
+        else:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            self._save()
+
+    def _save(self):
+        try:
+            with open(self.file_path, "w", encoding="utf-8") as f:
+                json.dump(self._pending, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            print(f"[-] Error saving pending deletions: {e}", flush=True)
+
+    def schedule_deletion(
+        self,
+        chat_id: int | str,
+        message_id: int,
+        delay_seconds: int = 3600,
+        raion_name: str = "",
+    ):
+        """Schedules a message to be automatically deleted after delay_seconds (default 1 hour)."""
+        delete_at = time.time() + delay_seconds
+        with self._lock:
+            self._pending.append({
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "delete_at": delete_at,
+                "created_at": time.time(),
+                "raion_name": raion_name,
+            })
+            self._save()
+
+    def pop_previous_raion_alerts(self, chat_id: int | str, raion_name: str) -> List[int]:
+        """Finds and removes prior un-deleted alert message IDs for this raion to replace them."""
+        with self._lock:
+            to_delete = []
+            remaining = []
+            for item in self._pending:
+                if str(item.get("chat_id")) == str(chat_id) and item.get("raion_name") == raion_name:
+                    to_delete.append(item.get("message_id"))
+                else:
+                    remaining.append(item)
+            if to_delete:
+                self._pending = remaining
+                self._save()
+            return to_delete
+
+    def get_pending(self) -> List[Dict[str, Any]]:
+        with self._lock:
+            return list(self._pending)
+
+    def process_pending(self, api_caller_func) -> int:
+        """Checks and deletes all messages whose 1-hour expiration timestamp has arrived."""
+        now = time.time()
+        deleted_count = 0
+        with self._lock:
+            if not self._pending:
+                return 0
+
+            remaining = []
+            for item in self._pending:
+                if now >= item.get("delete_at", 0):
+                    cid = item.get("chat_id")
+                    mid = item.get("message_id")
+                    try:
+                        api_caller_func("deleteMessage", {
+                            "chat_id": cid,
+                            "message_id": mid,
+                        })
+                        deleted_count += 1
+                    except Exception:
+                        pass
+                else:
+                    remaining.append(item)
+
+            if len(remaining) != len(self._pending):
+                self._pending = remaining
+                self._save()
+
+        return deleted_count
+

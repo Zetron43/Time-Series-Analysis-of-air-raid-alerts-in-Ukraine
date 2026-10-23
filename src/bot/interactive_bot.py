@@ -49,7 +49,7 @@ from src.ingestion.telegram_multi_channel import (
 )
 from src.ingestion.neptun_client import NeptunClient
 from src.ingestion.dimap_client import DimapClient
-from src.bot.subscription_manager import UserSubscriptionManager
+from src.bot.subscription_manager import UserSubscriptionManager, AutoDeleteManager
 from rendering.alert_map_renderer import AlertMapRenderer
 
 RAION_NEIGHBORS_PATH = Path(__file__).resolve().parents[2] / "data" / "raion_neighbors.json"
@@ -1358,12 +1358,15 @@ def run_subscriptions_watcher(
     token: str,
     stop_event: threading.Event,
     sub_manager: Optional[UserSubscriptionManager] = None,
+    delete_mgr: Optional[AutoDeleteManager] = None,
     poll_interval: int = 40,
 ):
     """Background daemon checking for alarms in tracked raions and neighboring raions."""
     print("[*] Активовано фоновий сервіс автоматичного попередження для відстежуваних районів...", flush=True)
     if sub_manager is None:
         sub_manager = UserSubscriptionManager()
+    if delete_mgr is None:
+        delete_mgr = AutoDeleteManager()
     analyzer = ThreatAnalyzer()
 
     # Pre-map raions to region_codes
@@ -1374,6 +1377,11 @@ def run_subscriptions_watcher(
 
     while not stop_event.is_set():
         try:
+            # Check and delete expired alarm messages (>= 1 hour)
+            deleted = delete_mgr.process_pending(lambda method, payload: telegram_api_call(token, method, payload))
+            if deleted > 0:
+                print(f"[+] Автоматично видалено {deleted} застарілих повідомлень тривоги (1-годинний таймер).", flush=True)
+
             all_subs = sub_manager.get_all_subscriptions()
             if not all_subs:
                 stop_event.wait(poll_interval)
@@ -1417,13 +1425,25 @@ def run_subscriptions_watcher(
                                 f"⚠️ <b>Рівень небезпеки:</b> {lvl_badge}\n\n"
                                 f"📊 <b>Ймовірність продовження:</b> {res['overall_probability']*100:.1f}%\n"
                                 f"💡 <i>{res['prob_explanation']}</i>\n\n"
-                                f"🛡 <i>Негайно прямуйте до безпечного укриття!</i>"
+                                f"🛡 <i>Негайно прямуйте до безпечного укриття!</i>\n\n"
+                                f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
                             )
-                            telegram_api_call(token, "sendMessage", {
+                            # Remove older alarm for this raion in chat before sending fresh
+                            old_mids = delete_mgr.pop_previous_raion_alerts(cid, raion_name)
+                            for om in old_mids:
+                                try:
+                                    telegram_api_call(token, "deleteMessage", {"chat_id": cid, "message_id": om})
+                                except Exception:
+                                    pass
+
+                            send_res = telegram_api_call(token, "sendMessage", {
                                 "chat_id": cid,
                                 "text": alert_msg,
                                 "parse_mode": "HTML",
                             })
+                            if send_res.get("ok"):
+                                sent_mid = send_res["result"]["message_id"]
+                                delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
                             sub_manager.mark_notified(cid, raion_name, event_key)
 
                     # Scenario B: Early Warning - Alarm in Neighboring Raions
@@ -1440,13 +1460,24 @@ def run_subscriptions_watcher(
                                 f"{nb_list_str}\n\n"
                                 f"📊 <b>Ризик поширення тривоги на ваш район:</b> <b>{res['overall_probability']*100:.1f}%</b>\n"
                                 f"💡 <i>{res['prob_explanation']}</i>\n\n"
-                                f"⚠️ <i>Будьте уважні до сигналів тривоги та перевірте найближче укриття!</i>"
+                                f"⚠️ <i>Будьте уважні до сигналів тривоги та перевірте найближче укриття!</i>\n\n"
+                                f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
                             )
-                            telegram_api_call(token, "sendMessage", {
+                            old_mids = delete_mgr.pop_previous_raion_alerts(cid, raion_name)
+                            for om in old_mids:
+                                try:
+                                    telegram_api_call(token, "deleteMessage", {"chat_id": cid, "message_id": om})
+                                except Exception:
+                                    pass
+
+                            send_res = telegram_api_call(token, "sendMessage", {
                                 "chat_id": cid,
                                 "text": warn_msg,
                                 "parse_mode": "HTML",
                             })
+                            if send_res.get("ok"):
+                                sent_mid = send_res["result"]["message_id"]
+                                delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
                             sub_manager.mark_notified(cid, raion_name, event_key)
 
                     # Scenario C: Incoming UAVs detected by radar
@@ -1462,13 +1493,24 @@ def run_subscriptions_watcher(
                                 f"🕒 <b>Час:</b> {now_str}\n\n"
                                 f"Радари Neptun фіксують {len(local_drones)} ціль(ей){h_str} у напрямку вашого району!\n"
                                 f"📊 <b>Оцінка загрози:</b> {res['overall_probability']*100:.1f}%\n\n"
-                                f"🛡 <i>Подбайте про власну безпеку!</i>"
+                                f"🛡 <i>Подбайте про власну безпеку!</i>\n\n"
+                                f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
                             )
-                            telegram_api_call(token, "sendMessage", {
+                            old_mids = delete_mgr.pop_previous_raion_alerts(cid, raion_name)
+                            for om in old_mids:
+                                try:
+                                    telegram_api_call(token, "deleteMessage", {"chat_id": cid, "message_id": om})
+                                except Exception:
+                                    pass
+
+                            send_res = telegram_api_call(token, "sendMessage", {
                                 "chat_id": cid,
                                 "text": uav_msg,
                                 "parse_mode": "HTML",
                             })
+                            if send_res.get("ok"):
+                                sent_mid = send_res["result"]["message_id"]
+                                delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
                             sub_manager.mark_notified(cid, raion_name, event_key)
 
         except Exception as exc:
@@ -1565,8 +1607,10 @@ def update_or_send_message(
     text: str,
     reply_markup: Optional[dict] = None,
     is_photo_message: bool = False,
+    user_active_menu: Optional[Dict[str, int]] = None,
 ) -> dict:
-    """Edits message in-place if it is a text message, or sends a new message if original is a photo/media."""
+    """Edits message in-place if it is a text message, or replaces photo with text if original is a photo/media."""
+    cid_str = str(chat_id)
     if not is_photo_message:
         res = telegram_api_call(token, "editMessageText", {
             "chat_id": chat_id,
@@ -1576,19 +1620,31 @@ def update_or_send_message(
             "reply_markup": reply_markup,
         })
         if res.get("ok"):
+            if user_active_menu is not None:
+                user_active_menu[cid_str] = message_id
             return res
 
         err_desc = str(res.get("description", "")).lower()
-        if "no text" not in err_desc and "message to edit not found" not in err_desc:
+        if "message is not modified" in err_desc:
+            if user_active_menu is not None:
+                user_active_menu[cid_str] = message_id
             return res
 
-    # Original message was a photo/media or lacks editable text -> send as a new text message
-    return telegram_api_call(token, "sendMessage", {
+    # Original message was a photo/media or lacks editable text -> delete it and send fresh text
+    try:
+        telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+    except Exception:
+        pass
+
+    send_res = telegram_api_call(token, "sendMessage", {
         "chat_id": chat_id,
         "text": text,
         "parse_mode": "HTML",
         "reply_markup": reply_markup,
     })
+    if send_res.get("ok") and user_active_menu is not None:
+        user_active_menu[cid_str] = send_res["result"]["message_id"]
+    return send_res
 
 
 def run_live_polling(token: str):
@@ -1600,13 +1656,15 @@ def run_live_polling(token: str):
     analyzer = ThreatAnalyzer()
     renderer = AlertMapRenderer()
     sub_manager = UserSubscriptionManager()
+    delete_mgr = AutoDeleteManager()
+    user_active_menu: Dict[str, int] = {}
     offset = 0
 
     # 1. Start background early warning watcher daemon
     stop_event = threading.Event()
     watcher_thread = threading.Thread(
         target=run_subscriptions_watcher,
-        args=(token, stop_event, sub_manager),
+        args=(token, stop_event, sub_manager, delete_mgr),
         daemon=True,
     )
     watcher_thread.start()
@@ -1655,19 +1713,31 @@ def run_live_polling(token: str):
                 # 1. Direct message command (/start, /forecast, /track, /map, /metrics, or region names)
                 if "message" in u and "text" in u["message"]:
                     chat_id = u["message"]["chat"]["id"]
+                    cid_str = str(chat_id)
                     text = u["message"]["text"].strip()
                     user_name = u["message"].get("from", {}).get("first_name", "Користувач")
                     print(f"[>] Повідомлення від {user_name} (chat_id={chat_id}): '{text}'", flush=True)
 
+                    def clear_prev_menu():
+                        prev_mid = user_active_menu.get(cid_str)
+                        if prev_mid:
+                            try:
+                                telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": prev_mid})
+                            except Exception:
+                                pass
+
                     # Command: Tracking subscriptions
                     if text in ["/track", "/subscriptions", "🔔 Слідкування", "/следить"]:
                         track_text = format_tracking_menu_text(chat_id, sub_manager)
-                        telegram_api_call(token, "sendMessage", {
+                        clear_prev_menu()
+                        res = telegram_api_call(token, "sendMessage", {
                             "chat_id": chat_id,
                             "text": track_text,
                             "parse_mode": "HTML",
                             "reply_markup": get_tracking_menu_keyboard(chat_id, sub_manager),
                         })
+                        if res.get("ok"):
+                            user_active_menu[cid_str] = res["result"]["message_id"]
                         continue
 
                     # Command: Live Tactical Map
@@ -1684,13 +1754,17 @@ def run_live_polling(token: str):
                         telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "upload_photo"})
                         map_bytes = renderer.render_map(horizon_minutes=hor_mins)
                         caption = build_map_caption(hor_mins)
-                        send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=get_macro_zones_keyboard())
+                        clear_prev_menu()
+                        p_res = send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=get_macro_zones_keyboard())
+                        if p_res.get("ok"):
+                            user_active_menu[cid_str] = p_res["result"]["message_id"]
                         continue
 
                     # Command: Sources Benchmark & Metrics
                     if text in ["/metrics", "/benchmark", "/джерела", "📊 Метрики"]:
                         metrics_summary = format_sources_benchmark_summary()
-                        telegram_api_call(token, "sendMessage", {
+                        clear_prev_menu()
+                        res = telegram_api_call(token, "sendMessage", {
                             "chat_id": chat_id,
                             "text": metrics_summary,
                             "parse_mode": "HTML",
@@ -1701,6 +1775,8 @@ def run_live_polling(token: str):
                                 ]
                             },
                         })
+                        if res.get("ok"):
+                            user_active_menu[cid_str] = res["result"]["message_id"]
                         continue
 
                     # Check if text directly asks for a known region
@@ -1716,12 +1792,15 @@ def run_live_polling(token: str):
 
                     if matched_code:
                         overview = format_region_selection_overview(matched_code)
-                        telegram_api_call(token, "sendMessage", {
+                        clear_prev_menu()
+                        res = telegram_api_call(token, "sendMessage", {
                             "chat_id": chat_id,
                             "text": overview,
                             "parse_mode": "HTML",
                             "reply_markup": get_raions_keyboard(matched_code),
                         })
+                        if res.get("ok"):
+                            user_active_menu[cid_str] = res["result"]["message_id"]
                     else:
                         welcome_text = (
                             f"👋 <b>Вітаю, {user_name}!</b>\n\n"
@@ -1744,12 +1823,15 @@ def run_live_polling(token: str):
                                 [{"text": "📊 Метрики джерел (Neptun / Dimap / Alerts)", "callback_data": "menu_metrics"}],
                             ]
                         }
-                        telegram_api_call(token, "sendMessage", {
+                        clear_prev_menu()
+                        res = telegram_api_call(token, "sendMessage", {
                             "chat_id": chat_id,
                             "text": welcome_text,
                             "parse_mode": "HTML",
                             "reply_markup": quick_menu,
                         })
+                        if res.get("ok"):
+                            user_active_menu[cid_str] = res["result"]["message_id"]
 
                 # 2. Inline button clicks (Callback queries)
                 elif "callback_query" in u:
@@ -1757,13 +1839,40 @@ def run_live_polling(token: str):
                     cq_id = cq["id"]
                     data = cq.get("data", "")
                     chat_id = cq["message"]["chat"]["id"]
+                    cid_str = str(chat_id)
                     message_id = cq["message"]["message_id"]
                     msg_obj = cq.get("message", {})
                     is_photo_msg = bool("photo" in msg_obj or "video" in msg_obj or "document" in msg_obj or ("caption" in msg_obj and "text" not in msg_obj))
                     cb_user = cq.get("from", {}).get("first_name", "Користувач")
 
-                    telegram_api_call(token, "answerCallbackQuery", {"callback_query_id": cq_id})
                     print(f"[>] Клік від {cb_user}: '{data}' (is_photo={is_photo_msg})", flush=True)
+
+                    # Add subscription to raion - native modal popup, no chat pollution
+                    if data.startswith("subadd_"):
+                        parts = data.split("_")
+                        if len(parts) >= 3:
+                            raion_idx = int(parts[-1])
+                            region_code = "_".join(parts[1:-1])
+                            reg_meta = ALL_REGIONS.get(region_code, {})
+                            raions = reg_meta.get("raions", [])
+                            if 0 <= raion_idx < len(raions):
+                                raion_name = raions[raion_idx]
+                                added = sub_manager.add_subscription(chat_id, raion_name)
+                                alert_text = (
+                                    f"🔔 Район '{raion_name}' успішно додано до слідкування!\n\n"
+                                    f"Бот автоматично повідомить при тривозі або наближенні БпЛА.\n"
+                                    f"⏱ Повідомлення тривоги видалятимуться через 1 годину."
+                                    if added else
+                                    f"ℹ️ Район '{raion_name}' уже додано до списку слідкування."
+                                )
+                                telegram_api_call(token, "answerCallbackQuery", {
+                                    "callback_query_id": cq_id,
+                                    "text": alert_text,
+                                    "show_alert": True,
+                                })
+                        continue
+
+                    telegram_api_call(token, "answerCallbackQuery", {"callback_query_id": cq_id})
 
                     if data in ["menu_zones", "menu_regions"]:
                         update_or_send_message(
@@ -1773,6 +1882,7 @@ def run_live_polling(token: str):
                             text="📍 <b>Оберіть макрорегіон або перегляньте всі області:</b>",
                             reply_markup=get_macro_zones_keyboard(),
                             is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
                         )
 
                     elif data == "menu_tracking":
@@ -1784,6 +1894,7 @@ def run_live_polling(token: str):
                             text=track_text,
                             reply_markup=get_tracking_menu_keyboard(chat_id, sub_manager),
                             is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
                         )
 
                     elif data == "menu_metrics":
@@ -1800,6 +1911,7 @@ def run_live_polling(token: str):
                                 ]
                             },
                             is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
                         )
 
                     elif data == "zone_all":
@@ -1810,6 +1922,7 @@ def run_live_polling(token: str):
                             text="📍 <b>Усі 26 областей України (за алфавітом):</b>",
                             reply_markup=get_all_regions_keyboard(),
                             is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
                         )
 
                     elif data in MACRO_ZONES:
@@ -1821,6 +1934,7 @@ def run_live_polling(token: str):
                             text=f"📍 <b>{zone_title} — Оберіть вашу область:</b>",
                             reply_markup=get_zone_regions_keyboard(data),
                             is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
                         )
 
                     # Selecting region -> Prompts user to choose a specific Raion
@@ -1834,6 +1948,7 @@ def run_live_polling(token: str):
                             text=region_overview,
                             reply_markup=get_raions_keyboard(region_code),
                             is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
                         )
 
                     # Whole-oblast status & horizons
@@ -1847,6 +1962,7 @@ def run_live_polling(token: str):
                             text=region_overview,
                             reply_markup=get_horizon_keyboard(region_code),
                             is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
                         )
 
                     # Selecting specific raion -> Shows raion overview and horizon options
@@ -1867,6 +1983,7 @@ def run_live_polling(token: str):
                                     text=r_overview,
                                     reply_markup=get_raion_horizon_keyboard(region_code, raion_idx),
                                     is_photo_message=is_photo_msg,
+                                    user_active_menu=user_active_menu,
                                 )
 
                     # Horizon forecast for specific raion
@@ -1890,6 +2007,7 @@ def run_live_polling(token: str):
                                     text=reply_text,
                                     reply_markup=action_keyboard,
                                     is_photo_message=is_photo_msg,
+                                    user_active_menu=user_active_menu,
                                 )
 
                     # Horizon forecast for whole oblast
@@ -1908,6 +2026,7 @@ def run_live_polling(token: str):
                                 text=reply_text,
                                 reply_markup=action_keyboard,
                                 is_photo_message=is_photo_msg,
+                                user_active_menu=user_active_menu,
                             )
 
                     # Map rendering for specific raion
@@ -1936,7 +2055,14 @@ def run_live_polling(token: str):
                                     ],
                                 ]
                             }
-                            send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=map_action_kb)
+                            # Delete prior message so that map replaces it cleanly
+                            try:
+                                telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+                            except Exception:
+                                pass
+                            p_res = send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=map_action_kb)
+                            if p_res.get("ok"):
+                                user_active_menu[cid_str] = p_res["result"]["message_id"]
 
                     # Map rendering for whole country / oblast
                     elif data.startswith("mapall_"):
@@ -1945,40 +2071,14 @@ def run_live_polling(token: str):
                         hor_mins = AVAILABLE_HORIZONS.get(horizon_code, {"minutes": 60})["minutes"]
                         map_bytes = renderer.render_map(horizon_minutes=hor_mins)
                         caption = build_map_caption(hor_mins)
-                        send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=get_macro_zones_keyboard())
-
-                    # Add subscription to raion
-                    elif data.startswith("subadd_"):
-                        parts = data.split("_")
-                        if len(parts) >= 3:
-                            raion_idx = int(parts[-1])
-                            region_code = "_".join(parts[1:-1])
-                            reg_meta = ALL_REGIONS.get(region_code, {})
-                            raions = reg_meta.get("raions", [])
-                            if 0 <= raion_idx < len(raions):
-                                raion_name = raions[raion_idx]
-                                added = sub_manager.add_subscription(chat_id, raion_name)
-                                status_txt = "вже було активовано раніше" if not added else "успішно додано"
-                                conf_msg = (
-                                    f"🔔 <b>СЛІДКУВАННЯ АКТИВОВАНО!</b>\n\n"
-                                    f"📍 <b>Район:</b> {raion_name} ({reg_meta['name']})\n"
-                                    f"Стан: спостереження {status_txt}.\n\n"
-                                    f"Бот автоматично надішле термінове сповіщення у разі:\n"
-                                    f"• 🔴/🟡 Початку тривоги безпосередньо у районі\n"
-                                    f"• ⚠️ Тривоги в сусідніх районах (раннє попередження)\n"
-                                    f"• 🛸 Виявлення ворожих БпЛА на підльоті до району"
-                                )
-                                telegram_api_call(token, "sendMessage", {
-                                    "chat_id": chat_id,
-                                    "text": conf_msg,
-                                    "parse_mode": "HTML",
-                                    "reply_markup": {
-                                        "inline_keyboard": [
-                                            [{"text": "🔔 Мої райони слідкування", "callback_data": "menu_tracking"}],
-                                            [{"text": "⬅️ Назад до районів", "callback_data": f"reg_{region_code}"}],
-                                        ]
-                                    },
-                                })
+                        # Delete prior message so that map replaces it cleanly
+                        try:
+                            telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
+                        except Exception:
+                            pass
+                        p_res = send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=get_macro_zones_keyboard())
+                        if p_res.get("ok"):
+                            user_active_menu[cid_str] = p_res["result"]["message_id"]
 
                     # Remove subscription from raion
                     elif data.startswith("subdel_"):
@@ -1997,6 +2097,7 @@ def run_live_polling(token: str):
                                 text=track_text,
                                 reply_markup=get_tracking_menu_keyboard(chat_id, sub_manager),
                                 is_photo_message=is_photo_msg,
+                                user_active_menu=user_active_menu,
                             )
 
             time.sleep(0.5)

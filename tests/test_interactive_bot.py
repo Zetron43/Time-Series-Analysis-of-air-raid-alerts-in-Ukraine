@@ -247,7 +247,7 @@ def test_benchmark_metrics_summary():
 
 
 def test_update_or_send_message_handles_photo_messages(monkeypatch):
-    """Verifies that clicking buttons on photo messages gracefully falls back to sendMessage."""
+    """Verifies that clicking buttons on photo messages deletes photo and falls back to sendMessage."""
     from src.bot import interactive_bot
 
     calls = []
@@ -260,20 +260,66 @@ def test_update_or_send_message_handles_photo_messages(monkeypatch):
 
     monkeypatch.setattr(interactive_bot, "telegram_api_call", mock_api_call)
 
-    # 1. When is_photo_message is True, should immediately call sendMessage
-    calls.clear()
-    res1 = interactive_bot.update_or_send_message("fake_tok", 123, 456, "Hello", is_photo_message=True)
-    assert res1.get("ok") is True
-    assert len(calls) == 1
-    assert calls[0][0] == "sendMessage"
+    active_menu = {}
 
-    # 2. When is_photo_message is False but editMessageText fails with 'no text', falls back to sendMessage
+    # 1. When is_photo_message is True, should delete old photo and call sendMessage
     calls.clear()
-    res2 = interactive_bot.update_or_send_message("fake_tok", 123, 456, "Hello", is_photo_message=False)
-    assert res2.get("ok") is True
+    res1 = interactive_bot.update_or_send_message("fake_tok", 123, 456, "Hello", is_photo_message=True, user_active_menu=active_menu)
+    assert res1.get("ok") is True
     assert len(calls) == 2
-    assert calls[0][0] == "editMessageText"
+    assert calls[0] == ("deleteMessage", {"chat_id": 123, "message_id": 456})
     assert calls[1][0] == "sendMessage"
+    assert active_menu["123"] == 999
+
+    # 2. When is_photo_message is False but editMessageText fails with 'no text', deletes and falls back to sendMessage
+    calls.clear()
+    res2 = interactive_bot.update_or_send_message("fake_tok", 123, 456, "Hello", is_photo_message=False, user_active_menu=active_menu)
+    assert res2.get("ok") is True
+    assert len(calls) == 3
+    assert calls[0][0] == "editMessageText"
+    assert calls[1][0] == "deleteMessage"
+    assert calls[2][0] == "sendMessage"
+    assert active_menu["123"] == 999
+
+
+def test_auto_delete_manager(tmp_path):
+    """Verifies scheduling, popping, and 1-hour expiration handling of alarm messages."""
+    from src.bot.subscription_manager import AutoDeleteManager
+    test_file = str(tmp_path / "pending_deletions.json")
+    mgr = AutoDeleteManager(file_path=test_file)
+
+    # 1. Schedule message for deletion
+    mgr.schedule_deletion(chat_id=123, message_id=555, delay_seconds=3600, raion_name="Львівський район")
+    pending = mgr.get_pending()
+    assert len(pending) == 1
+    assert pending[0]["chat_id"] == 123
+    assert pending[0]["message_id"] == 555
+    assert pending[0]["raion_name"] == "Львівський район"
+
+    # 2. Pop previous alerts for the same raion
+    popped = mgr.pop_previous_raion_alerts(chat_id=123, raion_name="Львівський район")
+    assert popped == [555]
+    assert len(mgr.get_pending()) == 0
+
+    # 3. Schedule two messages: one expired (delay=-10), one in future (delay=3600)
+    mgr.schedule_deletion(chat_id=123, message_id=777, delay_seconds=-10, raion_name="Бучанський район")
+    mgr.schedule_deletion(chat_id=123, message_id=888, delay_seconds=3600, raion_name="Бучанський район")
+
+    deleted_api_calls = []
+    def mock_caller(method, payload):
+        deleted_api_calls.append((method, payload))
+        return {"ok": True}
+
+    count = mgr.process_pending(mock_caller)
+    assert count == 1
+    assert len(deleted_api_calls) == 1
+    assert deleted_api_calls[0] == ("deleteMessage", {"chat_id": 123, "message_id": 777})
+
+    # Only future message 888 remains
+    remaining = mgr.get_pending()
+    assert len(remaining) == 1
+    assert remaining[0]["message_id"] == 888
+
 
 
 
