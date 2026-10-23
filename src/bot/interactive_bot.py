@@ -51,6 +51,7 @@ from src.ingestion.neptun_client import NeptunClient
 from src.ingestion.dimap_client import DimapClient
 from src.bot.subscription_manager import UserSubscriptionManager, AutoDeleteManager
 from rendering.alert_map_renderer import AlertMapRenderer
+from src.bot.ai_agent import AirRaidAIAgent
 
 RAION_NEIGHBORS_PATH = Path(__file__).resolve().parents[2] / "data" / "raion_neighbors.json"
 
@@ -1657,6 +1658,7 @@ def run_live_polling(token: str):
     renderer = AlertMapRenderer()
     sub_manager = UserSubscriptionManager()
     delete_mgr = AutoDeleteManager()
+    ai_agent = AirRaidAIAgent()
     user_active_menu: Dict[str, int] = {}
     offset = 0
 
@@ -1801,7 +1803,7 @@ def run_live_polling(token: str):
                         })
                         if res.get("ok"):
                             user_active_menu[cid_str] = res["result"]["message_id"]
-                    else:
+                    elif text.startswith("/start") or text in ["/help", "/menu", "меню", "старт"]:
                         welcome_text = (
                             f"👋 <b>Вітаю, {user_name}!</b>\n\n"
                             "Я — оперативний аналітичний бот моніторингу повітряних загроз в Україні з повним поділом на райони.\n\n"
@@ -1810,7 +1812,7 @@ def run_live_polling(token: str):
                             "• 🏘 <b>Поділ на всі райони:</b> оберіть область і перегляньте детальний стан свого району\n"
                             "• 🔔 <b>Цілодобове слідкування:</b> раннє попередження при тривозі у сусідніх районах чи русі БпЛА\n"
                             "• 🗺 <b>Тактична карта України:</b> райони з червоними й жовтими рівнями та вектори руху дронів\n"
-                            "• 📊 <b>Точні прогнози:</b> калібровані ймовірності залежно від кількості цілей (1 чи група)\n\n"
+                            "• 🤖 <b>ШІ-Агент 'Вартовий Неба':</b> напишіть будь-яке запитання звичайними словами\n\n"
                             "📍 <b>Оберіть макрорегіон для перегляду районів:</b>"
                         )
                         quick_menu = {
@@ -1820,7 +1822,10 @@ def run_live_polling(token: str):
                                     {"text": "🔔 Мої райони слідкування", "callback_data": "menu_tracking"},
                                     {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"},
                                 ],
-                                [{"text": "📊 Метрики джерел (Neptun / Dimap / Alerts)", "callback_data": "menu_metrics"}],
+                                [
+                                    {"text": "🤖 ШІ-Агент 'Вартовий Неба'", "callback_data": "menu_ai_info"},
+                                    {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
+                                ],
                             ]
                         }
                         clear_prev_menu()
@@ -1830,6 +1835,33 @@ def run_live_polling(token: str):
                             "parse_mode": "HTML",
                             "reply_markup": quick_menu,
                         })
+                        if res.get("ok"):
+                            user_active_menu[cid_str] = res["result"]["message_id"]
+                    else:
+                        # Natural language query handled by Gemini AI Agent
+                        telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                        ai_reply = ai_agent.answer_query(text, chat_id=chat_id)
+                        clear_prev_menu()
+                        ai_menu = {
+                            "inline_keyboard": [
+                                [
+                                    {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"},
+                                    {"text": "📍 Меню районів", "callback_data": "menu_zones"},
+                                ]
+                            ]
+                        }
+                        res = telegram_api_call(token, "sendMessage", {
+                            "chat_id": chat_id,
+                            "text": ai_reply,
+                            "parse_mode": "HTML",
+                            "reply_markup": ai_menu,
+                        })
+                        if not res.get("ok"):
+                            res = telegram_api_call(token, "sendMessage", {
+                                "chat_id": chat_id,
+                                "text": ai_reply,
+                                "reply_markup": ai_menu,
+                            })
                         if res.get("ok"):
                             user_active_menu[cid_str] = res["result"]["message_id"]
 
@@ -1907,6 +1939,34 @@ def run_live_polling(token: str):
                             reply_markup={
                                 "inline_keyboard": [
                                     [{"text": "🗺 Карта тривог України", "callback_data": "mapall_kyiv_15m"}],
+                                    [{"text": "📍 До вибору областей", "callback_data": "menu_zones"}],
+                                ]
+                            },
+                            is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
+                        )
+
+                    elif data == "menu_ai_info":
+                        ai_status = "✅ АКТИВОВАНО" if ai_agent.is_configured() else "⚠️ ОЧІКУЄ GEMINI_API_KEY"
+                        ai_info_text = (
+                            f"🤖 <b>ОПЕРАТИВНИЙ ШІ-АГЕНТ 'ВАРТОВИЙ НЕБА'</b>\n\n"
+                            f"Статус ядра Gemini: <b>{ai_status}</b>\n\n"
+                            f"ШІ-агент вміє аналізувати ситуацію та відповідати на запитання звичайною мовою!\n\n"
+                            f"💬 <b>Приклади запитань, які можна просто написати боту в чат:</b>\n"
+                            f"• <i>'Яка зараз ситуація в Харкові?'</i>\n"
+                            f"• <i>'Де летять дрони на Сумщині?'</i>\n"
+                            f"• <i>'Чи є небезпека для Білої Церкви на найближчу годину?'</i>\n"
+                            f"• <i>'Які області зараз під загрозою?'</i>\n\n"
+                            f"💡 <i>Агент самостійно викликає радари Neptun, базу alerts.in.ua та математичну модель розрахунку ймовірностей!</i>"
+                        )
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=ai_info_text,
+                            reply_markup={
+                                "inline_keyboard": [
+                                    [{"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"}],
                                     [{"text": "📍 До вибору областей", "callback_data": "menu_zones"}],
                                 ]
                             },
