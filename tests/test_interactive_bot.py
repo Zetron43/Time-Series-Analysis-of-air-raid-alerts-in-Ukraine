@@ -246,3 +246,34 @@ def test_benchmark_metrics_summary():
     assert "%" in summary
 
 
+def test_update_or_send_message_handles_photo_messages(monkeypatch):
+    """Verifies that clicking buttons on photo messages gracefully falls back to sendMessage."""
+    from src.bot import interactive_bot
+
+    calls = []
+
+    def mock_api_call(token, method, payload):
+        calls.append((method, payload))
+        if method == "editMessageText":
+            return {"ok": False, "error_code": 400, "description": "Bad Request: there is no text in the message to edit"}
+        return {"ok": True, "result": {"message_id": 999}}
+
+    monkeypatch.setattr(interactive_bot, "telegram_api_call", mock_api_call)
+
+    # 1. When is_photo_message is True, should immediately call sendMessage
+    calls.clear()
+    res1 = interactive_bot.update_or_send_message("fake_tok", 123, 456, "Hello", is_photo_message=True)
+    assert res1.get("ok") is True
+    assert len(calls) == 1
+    assert calls[0][0] == "sendMessage"
+
+    # 2. When is_photo_message is False but editMessageText fails with 'no text', falls back to sendMessage
+    calls.clear()
+    res2 = interactive_bot.update_or_send_message("fake_tok", 123, 456, "Hello", is_photo_message=False)
+    assert res2.get("ok") is True
+    assert len(calls) == 2
+    assert calls[0][0] == "editMessageText"
+    assert calls[1][0] == "sendMessage"
+
+
+

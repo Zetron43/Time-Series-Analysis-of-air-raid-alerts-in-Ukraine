@@ -1558,6 +1558,39 @@ def telegram_api_call(token: str, method: str, payload: dict) -> dict:
         return {"ok": False, "description": str(exc)}
 
 
+def update_or_send_message(
+    token: str,
+    chat_id: int | str,
+    message_id: int,
+    text: str,
+    reply_markup: Optional[dict] = None,
+    is_photo_message: bool = False,
+) -> dict:
+    """Edits message in-place if it is a text message, or sends a new message if original is a photo/media."""
+    if not is_photo_message:
+        res = telegram_api_call(token, "editMessageText", {
+            "chat_id": chat_id,
+            "message_id": message_id,
+            "text": text,
+            "parse_mode": "HTML",
+            "reply_markup": reply_markup,
+        })
+        if res.get("ok"):
+            return res
+
+        err_desc = str(res.get("description", "")).lower()
+        if "no text" not in err_desc and "message to edit not found" not in err_desc:
+            return res
+
+    # Original message was a photo/media or lacks editable text -> send as a new text message
+    return telegram_api_call(token, "sendMessage", {
+        "chat_id": chat_id,
+        "text": text,
+        "parse_mode": "HTML",
+        "reply_markup": reply_markup,
+    })
+
+
 def run_live_polling(token: str):
     """Runs long polling loop to serve user queries interactively in Telegram."""
     print("=" * 70, flush=True)
@@ -1725,87 +1758,96 @@ def run_live_polling(token: str):
                     data = cq.get("data", "")
                     chat_id = cq["message"]["chat"]["id"]
                     message_id = cq["message"]["message_id"]
+                    msg_obj = cq.get("message", {})
+                    is_photo_msg = bool("photo" in msg_obj or "video" in msg_obj or "document" in msg_obj or ("caption" in msg_obj and "text" not in msg_obj))
                     cb_user = cq.get("from", {}).get("first_name", "Користувач")
 
                     telegram_api_call(token, "answerCallbackQuery", {"callback_query_id": cq_id})
-                    print(f"[>] Клік від {cb_user}: '{data}'", flush=True)
+                    print(f"[>] Клік від {cb_user}: '{data}' (is_photo={is_photo_msg})", flush=True)
 
                     if data in ["menu_zones", "menu_regions"]:
-                        telegram_api_call(token, "editMessageText", {
-                            "chat_id": chat_id,
-                            "message_id": message_id,
-                            "text": "📍 <b>Оберіть макрорегіон або перегляньте всі області:</b>",
-                            "parse_mode": "HTML",
-                            "reply_markup": get_macro_zones_keyboard(),
-                        })
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text="📍 <b>Оберіть макрорегіон або перегляньте всі області:</b>",
+                            reply_markup=get_macro_zones_keyboard(),
+                            is_photo_message=is_photo_msg,
+                        )
 
                     elif data == "menu_tracking":
                         track_text = format_tracking_menu_text(chat_id, sub_manager)
-                        telegram_api_call(token, "editMessageText", {
-                            "chat_id": chat_id,
-                            "message_id": message_id,
-                            "text": track_text,
-                            "parse_mode": "HTML",
-                            "reply_markup": get_tracking_menu_keyboard(chat_id, sub_manager),
-                        })
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=track_text,
+                            reply_markup=get_tracking_menu_keyboard(chat_id, sub_manager),
+                            is_photo_message=is_photo_msg,
+                        )
 
                     elif data == "menu_metrics":
                         metrics_summary = format_sources_benchmark_summary()
-                        telegram_api_call(token, "editMessageText", {
-                            "chat_id": chat_id,
-                            "message_id": message_id,
-                            "text": metrics_summary,
-                            "parse_mode": "HTML",
-                            "reply_markup": {
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=metrics_summary,
+                            reply_markup={
                                 "inline_keyboard": [
                                     [{"text": "🗺 Карта тривог України", "callback_data": "mapall_kyiv_15m"}],
                                     [{"text": "📍 До вибору областей", "callback_data": "menu_zones"}],
                                 ]
                             },
-                        })
+                            is_photo_message=is_photo_msg,
+                        )
 
                     elif data == "zone_all":
-                        telegram_api_call(token, "editMessageText", {
-                            "chat_id": chat_id,
-                            "message_id": message_id,
-                            "text": "📍 <b>Усі 26 областей України (за алфавітом):</b>",
-                            "parse_mode": "HTML",
-                            "reply_markup": get_all_regions_keyboard(),
-                        })
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text="📍 <b>Усі 26 областей України (за алфавітом):</b>",
+                            reply_markup=get_all_regions_keyboard(),
+                            is_photo_message=is_photo_msg,
+                        )
 
                     elif data in MACRO_ZONES:
                         zone_title = MACRO_ZONES[data]["title"]
-                        telegram_api_call(token, "editMessageText", {
-                            "chat_id": chat_id,
-                            "message_id": message_id,
-                            "text": f"📍 <b>{zone_title} — Оберіть вашу область:</b>",
-                            "parse_mode": "HTML",
-                            "reply_markup": get_zone_regions_keyboard(data),
-                        })
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=f"📍 <b>{zone_title} — Оберіть вашу область:</b>",
+                            reply_markup=get_zone_regions_keyboard(data),
+                            is_photo_message=is_photo_msg,
+                        )
 
                     # Selecting region -> Prompts user to choose a specific Raion
                     elif data.startswith("reg_"):
                         region_code = data.replace("reg_", "")
                         region_overview = format_region_selection_overview(region_code)
-                        telegram_api_call(token, "editMessageText", {
-                            "chat_id": chat_id,
-                            "message_id": message_id,
-                            "text": region_overview,
-                            "parse_mode": "HTML",
-                            "reply_markup": get_raions_keyboard(region_code),
-                        })
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=region_overview,
+                            reply_markup=get_raions_keyboard(region_code),
+                            is_photo_message=is_photo_msg,
+                        )
 
                     # Whole-oblast status & horizons
                     elif data.startswith("regall_"):
                         region_code = data.replace("regall_", "")
                         region_overview = format_region_selection_overview(region_code)
-                        telegram_api_call(token, "editMessageText", {
-                            "chat_id": chat_id,
-                            "message_id": message_id,
-                            "text": region_overview,
-                            "parse_mode": "HTML",
-                            "reply_markup": get_horizon_keyboard(region_code),
-                        })
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=region_overview,
+                            reply_markup=get_horizon_keyboard(region_code),
+                            is_photo_message=is_photo_msg,
+                        )
 
                     # Selecting specific raion -> Shows raion overview and horizon options
                     elif data.startswith("rn_"):
@@ -1818,13 +1860,14 @@ def run_live_polling(token: str):
                             if 0 <= raion_idx < len(raions):
                                 raion_name = raions[raion_idx]
                                 r_overview = format_raion_selection_overview(region_code, raion_name)
-                                telegram_api_call(token, "editMessageText", {
-                                    "chat_id": chat_id,
-                                    "message_id": message_id,
-                                    "text": r_overview,
-                                    "parse_mode": "HTML",
-                                    "reply_markup": get_raion_horizon_keyboard(region_code, raion_idx),
-                                })
+                                update_or_send_message(
+                                    token=token,
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    text=r_overview,
+                                    reply_markup=get_raion_horizon_keyboard(region_code, raion_idx),
+                                    is_photo_message=is_photo_msg,
+                                )
 
                     # Horizon forecast for specific raion
                     elif data.startswith("hrn_"):
@@ -1840,13 +1883,14 @@ def run_live_polling(token: str):
                                 res = analyzer.analyze_threats_for_region(region_code, horizon_code, raion_name=raion_name)
                                 reply_text = format_interactive_forecast_response(res)
                                 action_keyboard = get_forecast_action_keyboard(region_code, raion_idx, horizon_code)
-                                telegram_api_call(token, "editMessageText", {
-                                    "chat_id": chat_id,
-                                    "message_id": message_id,
-                                    "text": reply_text,
-                                    "parse_mode": "HTML",
-                                    "reply_markup": action_keyboard,
-                                })
+                                update_or_send_message(
+                                    token=token,
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    text=reply_text,
+                                    reply_markup=action_keyboard,
+                                    is_photo_message=is_photo_msg,
+                                )
 
                     # Horizon forecast for whole oblast
                     elif data.startswith("hor_"):
@@ -1857,13 +1901,14 @@ def run_live_polling(token: str):
                             res = analyzer.analyze_threats_for_region(region_code, horizon_code)
                             reply_text = format_interactive_forecast_response(res)
                             action_keyboard = get_forecast_action_keyboard(region_code, None, horizon_code)
-                            telegram_api_call(token, "editMessageText", {
-                                "chat_id": chat_id,
-                                "message_id": message_id,
-                                "text": reply_text,
-                                "parse_mode": "HTML",
-                                "reply_markup": action_keyboard,
-                            })
+                            update_or_send_message(
+                                token=token,
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=reply_text,
+                                reply_markup=action_keyboard,
+                                is_photo_message=is_photo_msg,
+                            )
 
                     # Map rendering for specific raion
                     elif data.startswith("map_"):
@@ -1945,13 +1990,14 @@ def run_live_polling(token: str):
                                 removed_raion = subs[idx]
                                 sub_manager.remove_subscription(chat_id, removed_raion)
                             track_text = format_tracking_menu_text(chat_id, sub_manager)
-                            telegram_api_call(token, "editMessageText", {
-                                "chat_id": chat_id,
-                                "message_id": message_id,
-                                "text": track_text,
-                                "parse_mode": "HTML",
-                                "reply_markup": get_tracking_menu_keyboard(chat_id, sub_manager),
-                            })
+                            update_or_send_message(
+                                token=token,
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=track_text,
+                                reply_markup=get_tracking_menu_keyboard(chat_id, sub_manager),
+                                is_photo_message=is_photo_msg,
+                            )
 
             time.sleep(0.5)
         except KeyboardInterrupt:
