@@ -44,16 +44,19 @@ def test_ai_agent_tools_execution():
 
 
 def test_ai_agent_mock_answer_query(monkeypatch):
-    """Verifies that agent correctly invokes Gemini generate_content and formats answer."""
+    """Verifies that agent correctly invokes Gemini Chat and formats answer."""
     agent = AirRaidAIAgent(api_key="valid_test_key")
 
     mock_client = MagicMock()
+    mock_chat = MagicMock()
     mock_response = MagicMock()
     mock_response.text = "🚨 У Сумській області зафіксовано 2 БпЛА курсом на захід. Ймовірність загрози 68%."
-    mock_client.models.generate_content.return_value = mock_response
+    mock_chat.send_message.return_value = mock_response
+    mock_client.chats.create.return_value = mock_chat
 
     agent._client = mock_client
 
     ans = agent.answer_query("Що там по Сумщині?", chat_id=12345)
     assert ans == "🚨 У Сумській області зафіксовано 2 БпЛА курсом на захід. Ймовірність загрози 68%."
-    assert mock_client.models.generate_content.called
+    assert mock_client.chats.create.called
+    assert mock_chat.send_message.called

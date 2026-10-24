@@ -37,7 +37,7 @@ class AirRaidAIAgent:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-3.8-flash",
     ):
         if not api_key:
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -66,7 +66,8 @@ class AirRaidAIAgent:
     # Tool Declarations (Functions with docstrings used by Gemini)
     # -------------------------------------------------------------------------
 
-    def get_live_alerts_overview(self, region_filter: str = "") -> str:
+    @staticmethod
+    def get_live_alerts_overview(region_filter: str = "") -> str:
         """Отримує поточну оперативну інформацію про активні повітряні тривоги по всій Україні або конкретній області.
 
         Args:
@@ -107,8 +108,8 @@ class AirRaidAIAgent:
         except Exception as e:
             return f"Помилка отримання даних alerts.in.ua: {e}"
 
+    @staticmethod
     def analyze_threat_forecast(
-        self,
         region: str,
         horizon: str = "1h",
         raion_name: str = "",
@@ -157,7 +158,8 @@ class AirRaidAIAgent:
         except Exception as e:
             return f"Помилка розрахунку прогнозу: {e}"
 
-    def get_radar_drones_status(self) -> str:
+    @staticmethod
+    def get_radar_drones_status() -> str:
         """Опитує радіолокаційні системи Neptun та Dimap про місцезнаходження, кількість та напрямок руху ворожих ударних БпЛА (Шахедів) у повітряному просторі України."""
         try:
             from src.ingestion.neptun_client import NeptunClient
@@ -180,7 +182,8 @@ class AirRaidAIAgent:
         except Exception as e:
             return f"Помилка опитування радарів Neptun: {e}"
 
-    def manage_user_tracking(self, chat_id: int, action: str = "list", raion_name: str = "") -> str:
+    @staticmethod
+    def manage_user_tracking(chat_id: int, action: str = "list", raion_name: str = "") -> str:
         """Керує списком районів користувача для отримання ранніх автоматичних сповіщень.
 
         Args:
@@ -226,29 +229,27 @@ class AirRaidAIAgent:
         try:
             from google.genai import types
 
-            # Create tools list binding instance methods
+            # Create tools list binding static methods
             tools = [
-                self.get_live_alerts_overview,
-                self.analyze_threat_forecast,
-                self.get_radar_drones_status,
-                self.manage_user_tracking,
+                AirRaidAIAgent.get_live_alerts_overview,
+                AirRaidAIAgent.analyze_threat_forecast,
+                AirRaidAIAgent.get_radar_drones_status,
+                AirRaidAIAgent.manage_user_tracking,
             ]
 
             # Context enricher with user chat_id
             augmented_query = f"[User chat_id: {chat_id}]\nЗапит користувача: {user_query}"
 
-            # Invoke Gemini with Automatic Function Calling
-            # Try gemini-2.5-flash or gemini-3.8-flash
-            model_to_use = self.model_name
-            response = self._client.models.generate_content(
-                model=model_to_use,
-                contents=augmented_query,
+            # Invoke Gemini with Automatic Function Calling via Chat session
+            chat = self._client.chats.create(
+                model=self.model_name,
                 config=types.GenerateContentConfig(
                     system_instruction=AGENT_SYSTEM_INSTRUCTION,
                     tools=tools,
                     temperature=0.2,
                 ),
             )
+            response = chat.send_message(augmented_query)
 
             if response and response.text:
                 return response.text.strip()
