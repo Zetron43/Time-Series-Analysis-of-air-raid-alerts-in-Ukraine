@@ -235,21 +235,8 @@ class AirRaidAIAgent:
                 "1. Перейдіть на <a href='https://aistudio.google.com/apikey'>Google AI Studio</a>.\n"
                 "2. Натисніть <i>'Create API key'</i>.\n"
                 "3. Встановіть змінну середовища у Railway (Variables) або в <code>.env</code>:\n"
-                "   <code>GEMINI_API_KEY=\"AIzaSy...\"</code>\n\n"
+                "   <code>GEMINI_API_KEY=\"ваш_ключ\"</code>\n\n"
                 "💡 <i>Після цього бот зможе відповідати на будь-які ваші запитання людською мовою, використовуючи математичні прогнози та радари!</i>"
-            )
-
-        # Early check for common OAuth code confusion (e.g. AQ... or 4/0AQ...)
-        if self.api_key and (self.api_key.startswith("AQ.") or self.api_key.startswith("4/0")):
-            return (
-                "⚠️ <b>Невірний формат ключа Gemini API!</b>\n\n"
-                "Вказане значення починається на <code>AQ...</code> — це код авторизації OAuth, а <b>не</b> API-ключ.\n\n"
-                "📌 Офіційний ключ Google Gemini API <b>завжди починається на <code>AIzaSy...</code></b> (39 символів).\n\n"
-                "🔑 <b>Як отримати правильний ключ за 30 секунд:</b>\n"
-                "1. Відкрийте <a href='https://aistudio.google.com/apikey'>Google AI Studio (API Keys)</a>.\n"
-                "2. Натисніть кнопку <b>'Create API key'</b>.\n"
-                "3. Скопіюйте згенерований ключ (він починається на <code>AIzaSy...</code>).\n"
-                "4. Вставте його у змінну <code>GEMINI_API_KEY</code> на <b>Railway</b> (вкладка <i>Variables</i>) або в локальний <code>.env</code>."
             )
 
         try:

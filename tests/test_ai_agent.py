@@ -62,13 +62,10 @@ def test_ai_agent_mock_answer_query(monkeypatch):
     assert mock_chat.send_message.called
 
 
-def test_ai_agent_oauth_code_detected():
-    """Verifies that agent intercepts OAuth codes (AQ...) and returns clear advice."""
-    agent = AirRaidAIAgent(api_key="AQ.dummy_oauth_code_example")
-    agent._client = MagicMock()  # Mock initialized client
-    resp = agent.answer_query("Привіт", chat_id=123)
-    assert "Невірний формат ключа Gemini API" in resp
-    assert "AIzaSy" in resp
+def test_ai_agent_auth_key_accepted():
+    """Verifies that modern Google AI Studio auth keys (AQ...) are accepted."""
+    agent = AirRaidAIAgent(api_key="AQ.mock_auth_key")
+    assert agent.is_configured()
 
 
 def test_ai_agent_invalid_key_exception_handled():
@@ -79,6 +76,6 @@ def test_ai_agent_invalid_key_exception_handled():
     agent._client = mock_client
 
     resp = agent.answer_query("Привіт", chat_id=123)
-    assert "Помилка ключа Gemini API (Недійсний API-ключ)" in resp
-    assert "AIzaSy" in resp
+    assert "Помилка ключа Gemini API" in resp
+    assert "Google AI Studio" in resp
 
