@@ -60,3 +60,25 @@ def test_ai_agent_mock_answer_query(monkeypatch):
     assert ans == "🚨 У Сумській області зафіксовано 2 БпЛА курсом на захід. Ймовірність загрози 68%."
     assert mock_client.chats.create.called
     assert mock_chat.send_message.called
+
+
+def test_ai_agent_oauth_code_detected():
+    """Verifies that agent intercepts OAuth codes (AQ...) and returns clear advice."""
+    agent = AirRaidAIAgent(api_key="AQ.dummy_oauth_code_example")
+    agent._client = MagicMock()  # Mock initialized client
+    resp = agent.answer_query("Привіт", chat_id=123)
+    assert "Невірний формат ключа Gemini API" in resp
+    assert "AIzaSy" in resp
+
+
+def test_ai_agent_invalid_key_exception_handled():
+    """Verifies that API_KEY_INVALID RPC exceptions are formatted cleanly."""
+    agent = AirRaidAIAgent(api_key="dummy_invalid_key")
+    mock_client = MagicMock()
+    mock_client.chats.create.side_effect = Exception("400 INVALID_ARGUMENT. API_KEY_INVALID. Please pass a valid API key.")
+    agent._client = mock_client
+
+    resp = agent.answer_query("Привіт", chat_id=123)
+    assert "Помилка ключа Gemini API (Недійсний API-ключ)" in resp
+    assert "AIzaSy" in resp
+

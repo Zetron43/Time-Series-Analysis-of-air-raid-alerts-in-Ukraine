@@ -20,16 +20,16 @@ except Exception:
 
 
 class DimapClient:
-    """Client for dimap.live API with caching."""
+    """Client for dimap.live API with shared class-level caching."""
 
     BASE_URL = "https://api.dimap.live/api"
     USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 AirAlertsBot/2.5"
 
+    _shared_cached_alerts: Optional[List[Dict[str, Any]]] = None
+    _shared_last_alerts_time: float = 0.0
+
     def __init__(self, cache_ttl: int = 20):
         self.cache_ttl = cache_ttl
-        self._cached_alerts: Optional[List[Dict[str, Any]]] = None
-        self._last_alerts_time: float = 0.0
-
         self._ssl_ctx = ssl.create_default_context()
         self._ssl_ctx.check_hostname = False
         self._ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -37,8 +37,8 @@ class DimapClient:
     def get_alerts(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """Returns list of active alerts by raions/cities from dimap.live."""
         now = time.time()
-        if not force_refresh and self._cached_alerts and (now - self._last_alerts_time < self.cache_ttl):
-            return self._cached_alerts
+        if not force_refresh and DimapClient._shared_cached_alerts and (now - DimapClient._shared_last_alerts_time < self.cache_ttl):
+            return DimapClient._shared_cached_alerts
 
         url = f"{self.BASE_URL}/alerts"
         req = urllib.request.Request(
@@ -53,13 +53,13 @@ class DimapClient:
                 raw = resp.read().decode("utf-8", errors="ignore")
                 data = json.loads(raw)
                 if isinstance(data, list):
-                    self._cached_alerts = data
-                    self._last_alerts_time = now
+                    DimapClient._shared_cached_alerts = data
+                    DimapClient._shared_last_alerts_time = now
                     return data
                 return []
         except Exception:
-            if self._cached_alerts:
-                return self._cached_alerts
+            if DimapClient._shared_cached_alerts:
+                return DimapClient._shared_cached_alerts
             return []
 
     def get_raion_status(self, raion_name: str) -> Optional[Dict[str, Any]]:

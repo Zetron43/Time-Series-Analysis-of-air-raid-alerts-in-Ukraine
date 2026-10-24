@@ -8,6 +8,7 @@ from datetime import datetime
 import json
 import os
 from pathlib import Path
+import re
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
@@ -17,7 +18,7 @@ AGENT_SYSTEM_INSTRUCTION = """Ти — спеціалізований опера
 
 Твоє завдання:
 1. Аналізувати ситуацію з повітряними тривогами, ракетними загрозами та ворожими БпЛА (Shahed, балістика, крилаті ракети, тактична/стратегічна авіація).
-2. Надавати точні, чіткі, спокійні та лаконічні відповіді українською мовою.
+2. Надавати швидкі, точні, спокійні та лаконічні відповіді українською мовою.
 3. Використовувати підключені інструменти (Tools) для отримання актуальних даних у реальному часі:
    - `get_live_alerts_overview` — для загальної картини по Україні чи конкретній області.
    - `analyze_threat_forecast` — для ймовірнісного прогнозу збереження або початку тривоги в конкретній області чи районі на обраний горизонт (15хв, 30хв, 1год, 2год).
@@ -25,10 +26,22 @@ AGENT_SYSTEM_INSTRUCTION = """Ти — спеціалізований опера
    - `manage_user_tracking` — для перегляду або додавання районів слідкування для користувача.
 
 Правила взаємодії:
-- Якщо користувач запитує про безпеку, тривогу чи загрозу в певному місті/районі/області — ЗАВЖДИ спершу виклич відповідний інструмент, щоб мати свіжі дані, а не здогадуватися.
-- Якщо є загроза — чітко вказуй рівень небезпеки та нагадуй про необхідність перебування в укритті чи дотримання правила двох стін.
-- Форматуй відповіді естетично, з використанням емодзі (🚨, 🛸, 📍, ⏱, 🛡), але без зайвої "води". Будь лаконічним і корисним.
+- Відповідай оперативно, лаконічно та структуровано (3–4 коротких пункти з емодзі 🚨, 🛸, 📍, ⏱, 🛡). Без довгих вступів та зайвої води.
+- Якщо користувач запитує про безпеку, тривогу чи загрозу в певному місті/районі/області — виклич відповідний інструмент, щоб мати свіжі дані.
+- Якщо є загроза — чітко вказуй рівень небезпеки та нагадуй про необхідність перебування в укритті.
 """
+
+
+def format_ai_markdown_to_html(text: str) -> str:
+    """Converts AI markdown formatting to Telegram-compatible HTML tags."""
+    if not text:
+        return ""
+    # Convert **bold** to <b>bold</b>
+    text = re.sub(r"\*\*(.+?)\*\*", r"<b>\1</b>", text)
+    # Convert single *italic* to <i>italic</i> when not inside an HTML tag
+    text = re.sub(r"(?<![<a-zA-Z0-9])\*([^\*\n]+?)\*(?![>a-zA-Z0-9])", r"<i>\1</i>", text)
+    return text
+
 
 
 class AirRaidAIAgent:
@@ -219,11 +232,24 @@ class AirRaidAIAgent:
                 "🤖 <b>ШІ-Агент 'Вартовий Неба' готовий до підключення!</b>\n\n"
                 "Щоб активувати природний діалог з інтелектуальним агентом, будь ласка, додайте свій <code>GEMINI_API_KEY</code>.\n\n"
                 "🔑 <b>Як отримати ключ безкоштовно:</b>\n"
-                "1. Перейдіть на <a href='https://aistudio.google.com/'>Google AI Studio</a>.\n"
-                "2. Натисніть <i>'Get API key'</i> -> <i>'Create API key'</i>.\n"
-                "3. Встановіть змінну середовища у Railway або у PowerShell:\n"
-                "   <code>$env:GEMINI_API_KEY=\"AIzaSy...\"</code>\n\n"
+                "1. Перейдіть на <a href='https://aistudio.google.com/apikey'>Google AI Studio</a>.\n"
+                "2. Натисніть <i>'Create API key'</i>.\n"
+                "3. Встановіть змінну середовища у Railway (Variables) або в <code>.env</code>:\n"
+                "   <code>GEMINI_API_KEY=\"AIzaSy...\"</code>\n\n"
                 "💡 <i>Після цього бот зможе відповідати на будь-які ваші запитання людською мовою, використовуючи математичні прогнози та радари!</i>"
+            )
+
+        # Early check for common OAuth code confusion (e.g. AQ... or 4/0AQ...)
+        if self.api_key and (self.api_key.startswith("AQ.") or self.api_key.startswith("4/0")):
+            return (
+                "⚠️ <b>Невірний формат ключа Gemini API!</b>\n\n"
+                "Вказане значення починається на <code>AQ...</code> — це код авторизації OAuth, а <b>не</b> API-ключ.\n\n"
+                "📌 Офіційний ключ Google Gemini API <b>завжди починається на <code>AIzaSy...</code></b> (39 символів).\n\n"
+                "🔑 <b>Як отримати правильний ключ за 30 секунд:</b>\n"
+                "1. Відкрийте <a href='https://aistudio.google.com/apikey'>Google AI Studio (API Keys)</a>.\n"
+                "2. Натисніть кнопку <b>'Create API key'</b>.\n"
+                "3. Скопіюйте згенерований ключ (він починається на <code>AIzaSy...</code>).\n"
+                "4. Вставте його у змінну <code>GEMINI_API_KEY</code> на <b>Railway</b> (вкладка <i>Variables</i>) або в локальний <code>.env</code>."
             )
 
         try:
@@ -241,21 +267,37 @@ class AirRaidAIAgent:
             augmented_query = f"[User chat_id: {chat_id}]\nЗапит користувача: {user_query}"
 
             # Invoke Gemini with Automatic Function Calling via Chat session
+            # using thinking_level="low" for fastest, lowest-latency response times
             chat = self._client.chats.create(
                 model=self.model_name,
                 config=types.GenerateContentConfig(
                     system_instruction=AGENT_SYSTEM_INSTRUCTION,
                     tools=tools,
                     temperature=0.2,
+                    thinking_config=types.ThinkingConfig(thinking_level="low"),
                 ),
             )
             response = chat.send_message(augmented_query)
 
             if response and response.text:
-                return response.text.strip()
+                raw_text = response.text.strip()
+                return format_ai_markdown_to_html(raw_text)
             return "Не вдалося сформувати відповідь. Спробуйте уточнити запит."
         except Exception as e:
-            print(f"[-] AI Agent Error during execution: {e}", flush=True)
+            err_msg = str(e)
+            print(f"[-] AI Agent Error during execution: {err_msg}", flush=True)
+            if "API_KEY_INVALID" in err_msg or "API key not valid" in err_msg or ("INVALID_ARGUMENT" in err_msg and "key" in err_msg.lower()):
+                return (
+                    "⚠️ <b>Помилка ключа Gemini API (Недійсний API-ключ):</b>\n\n"
+                    "Google відхилив вказаний ключ API (<code>API_KEY_INVALID</code>).\n\n"
+                    "📌 <b>Зверніть увагу:</b> Ключ Google Gemini API <b>завжди починається на <code>AIzaSy...</code></b> (39 символів).\n"
+                    "Значення, що починаються на <code>AQ...</code> або <code>4/0...</code>, є тимчасовими кодами авторизації, а не ключами API.\n\n"
+                    "🔑 <b>Як отримати правильний ключ безкоштовно:</b>\n"
+                    "1. Відкрийте <a href='https://aistudio.google.com/apikey'>Google AI Studio (API Keys)</a>.\n"
+                    "2. Натисніть кнопку <b>'Create API key'</b>.\n"
+                    "3. Скопіюйте ключ, що починається на <code>AIzaSy...</code>.\n"
+                    "4. Оновіть змінну <code>GEMINI_API_KEY</code> на <b>Railway</b> (Variables) або в файлі <code>.env</code>."
+                )
             return (
                 f"⚠️ <b>Помилка ШІ-агента:</b> {e}\n\n"
                 "Спробуйте скористатися стандартними кнопками меню або уточніть запитання."

@@ -40,32 +40,33 @@ GROUP_DRONE_PATTERNS = [
 
 
 class AlertsInUaLiveClient:
-    """Live parser for alerts.in.ua sitrep feed with cache TTL."""
+    """Live parser for alerts.in.ua sitrep feed with shared class-level cache TTL."""
 
     FEED_URL = "https://alerts.in.ua/llm"
     USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AirAlertsBot/2.0"
 
+    _shared_cached_text: Optional[str] = None
+    _shared_last_fetch_time: float = 0.0
+
     def __init__(self, cache_ttl_seconds: int = 15):
         self.cache_ttl = cache_ttl_seconds
-        self._cached_text: Optional[str] = None
-        self._last_fetch_time: float = 0.0
 
     def fetch_live_sitrep(self, force_refresh: bool = False) -> str:
         """Fetches live situation report text from alerts.in.ua with caching."""
         now = time.time()
-        if not force_refresh and self._cached_text and (now - self._last_fetch_time < self.cache_ttl):
-            return self._cached_text
+        if not force_refresh and AlertsInUaLiveClient._shared_cached_text and (now - AlertsInUaLiveClient._shared_last_fetch_time < self.cache_ttl):
+            return AlertsInUaLiveClient._shared_cached_text
 
         req = urllib.request.Request(self.FEED_URL, headers={"User-Agent": self.USER_AGENT})
         try:
             with urllib.request.urlopen(req, timeout=8) as resp:
                 text = resp.read().decode("utf-8")
-                self._cached_text = text
-                self._last_fetch_time = now
+                AlertsInUaLiveClient._shared_cached_text = text
+                AlertsInUaLiveClient._shared_last_fetch_time = now
                 return text
         except Exception as e:
-            if self._cached_text:
-                return self._cached_text
+            if AlertsInUaLiveClient._shared_cached_text:
+                return AlertsInUaLiveClient._shared_cached_text
             raise RuntimeError(f"Failed to fetch alerts.in.ua: {e}")
 
     def get_kyiv_time(self) -> datetime:

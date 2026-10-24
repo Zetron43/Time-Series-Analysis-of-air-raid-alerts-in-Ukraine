@@ -23,19 +23,19 @@ except Exception:
 
 
 class NeptunClient:
-    """Client for neptun.in.ua API v1 with caching."""
+    """Client for neptun.in.ua API v1 with shared class-level caching."""
 
     BASE_URL = "https://neptun.in.ua/api/v1"
     USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 AirAlertsBot/2.5"
 
+    _shared_cached_threats: Optional[Dict[str, Any]] = None
+    _shared_last_threats_time: float = 0.0
+
+    _shared_cached_alerts: Optional[Dict[str, Any]] = None
+    _shared_last_alerts_time: float = 0.0
+
     def __init__(self, cache_ttl: int = 20):
         self.cache_ttl = cache_ttl
-        self._cached_threats: Optional[Dict[str, Any]] = None
-        self._last_threats_time: float = 0.0
-
-        self._cached_alerts: Optional[Dict[str, Any]] = None
-        self._last_alerts_time: float = 0.0
-
         self._ssl_ctx = ssl.create_default_context()
         self._ssl_ctx.check_hostname = False
         self._ssl_ctx.verify_mode = ssl.CERT_NONE
@@ -56,23 +56,34 @@ class NeptunClient:
     def get_threats(self, force_refresh: bool = False) -> List[Dict[str, Any]]:
         """Returns list of active airborne targets (drones, missiles) with coordinates and courses."""
         now = time.time()
-        if not force_refresh and self._cached_threats and (now - self._last_threats_time < self.cache_ttl):
-            return self._cached_threats.get("threats", [])
+        if not force_refresh and NeptunClient._shared_cached_threats and (now - NeptunClient._shared_last_threats_time < self.cache_ttl):
+            return NeptunClient._shared_cached_threats.get("threats", [])
 
         try:
             data = self._request_json("threats")
-            self._cached_threats = data
-            self._last_threats_time = now
+            NeptunClient._shared_cached_threats = data
+            NeptunClient._shared_last_threats_time = now
             return data.get("threats", [])
         except Exception as exc:
-            if self._cached_threats:
-                return self._cached_threats.get("threats", [])
+            if NeptunClient._shared_cached_threats:
+                return NeptunClient._shared_cached_threats.get("threats", [])
             return []
 
     def get_alerts(self, force_refresh: bool = False) -> Dict[str, Any]:
         """Returns active alerts by raions and oblasts from neptun.in.ua."""
         now = time.time()
-        if not force_refresh and self._cached_alerts and (now - self._last_alerts_time < self.cache_ttl):
+        if not force_refresh and NeptunClient._shared_cached_alerts and (now - NeptunClient._shared_last_alerts_time < self.cache_ttl):
+            return NeptunClient._shared_cached_alerts
+
+        try:
+            data = self._request_json("alerts")
+            NeptunClient._shared_cached_alerts = data
+            NeptunClient._shared_last_alerts_time = now
+            return data
+        except Exception as exc:
+            if NeptunClient._shared_cached_alerts:
+                return NeptunClient._shared_cached_alerts
+            return {}
             return self._cached_alerts
 
         try:

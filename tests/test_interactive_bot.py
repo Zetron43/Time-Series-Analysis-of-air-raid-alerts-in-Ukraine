@@ -26,6 +26,46 @@ def test_region_and_horizon_keyboards():
     assert first_hor_btn["callback_data"].startswith("hor_kharkiv_")
 
 
+def test_ai_agent_entrypoint_keyboards():
+    """Verifies that map, region, and raion keyboards include one-click AI Agent access."""
+    from src.bot.interactive_bot import (
+        get_mapall_action_keyboard,
+        get_raions_keyboard,
+        get_raion_horizon_keyboard,
+        get_forecast_action_keyboard,
+    )
+
+    # 1. Map keyboard has AI button
+    map_kb = get_mapall_action_keyboard(horizon_code="15m")
+    buttons = [btn["callback_data"] for row in map_kb["inline_keyboard"] for btn in row]
+    assert "ai_map" in buttons
+
+    # 2. Region horizon keyboard has AI button
+    hor_kb = get_horizon_keyboard("sumy")
+    hor_btns = [btn["callback_data"] for row in hor_kb["inline_keyboard"] for btn in row]
+    assert "ai_reg_sumy" in hor_btns
+
+    # 3. Raions list keyboard has AI button
+    raions_kb = get_raions_keyboard("sumy")
+    r_btns = [btn["callback_data"] for row in raions_kb["inline_keyboard"] for btn in row]
+    assert "ai_reg_sumy" in r_btns
+
+    # 4. Raion horizon keyboard has raion AI button
+    raion_hor_kb = get_raion_horizon_keyboard("sumy", 0)
+    rh_btns = [btn["callback_data"] for row in raion_hor_kb["inline_keyboard"] for btn in row]
+    assert "ai_rn_sumy_0" in rh_btns
+
+    # 5. Forecast action keyboards have AI buttons
+    fc_raion = get_forecast_action_keyboard("sumy", 0, "15m")
+    fc_raion_btns = [btn["callback_data"] for row in fc_raion["inline_keyboard"] for btn in row]
+    assert "ai_rn_sumy_0" in fc_raion_btns
+
+    fc_reg = get_forecast_action_keyboard("sumy", None, "15m")
+    fc_reg_btns = [btn["callback_data"] for row in fc_reg["inline_keyboard"] for btn in row]
+    assert "ai_reg_sumy" in fc_reg_btns
+
+
+
 def test_threat_analyzer_output_structure():
     analyzer = ThreatAnalyzer()
     res = analyzer.analyze_threats_for_region("kyiv", "30m")

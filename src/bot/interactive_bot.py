@@ -1083,6 +1083,9 @@ def get_horizon_keyboard(region_code: str) -> dict:
             {"text": "⏱ 2 години", "callback_data": f"hor_{region_code}_2h"},
         ],
         [
+            {"text": "🤖 Запитати ШІ про область", "callback_data": f"ai_reg_{region_code}"},
+        ],
+        [
             {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_15m"},
             {"text": "🏘 Обрати конкретний район", "callback_data": f"reg_{region_code}"},
         ],
@@ -1113,11 +1116,14 @@ def get_raions_keyboard(region_code: str) -> dict:
         keyboard.append(row)
 
     keyboard.append([
-        {"text": "🌐 Вся область (зведений статус)", "callback_data": f"regall_{region_code}"},
-        {"text": "🗺 Карта тривог України", "callback_data": f"mapall_{region_code}_15m"},
+        {"text": "🤖 Запитати ШІ про область", "callback_data": f"ai_reg_{region_code}"},
+        {"text": "🌐 Вся область (зведення)", "callback_data": f"regall_{region_code}"},
     ])
     keyboard.append([
+        {"text": "🗺 Карта тривог України", "callback_data": f"mapall_{region_code}_15m"},
         {"text": "⬅️ Назад до областей", "callback_data": zone_code},
+    ])
+    keyboard.append([
         {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
     ])
     return {"inline_keyboard": keyboard}
@@ -1133,6 +1139,9 @@ def get_raion_horizon_keyboard(region_code: str, raion_idx: int) -> dict:
         [
             {"text": "⏱ 1 година", "callback_data": f"hrn_{region_code}_{raion_idx}_1h"},
             {"text": "⏱ 2 години", "callback_data": f"hrn_{region_code}_{raion_idx}_2h"},
+        ],
+        [
+            {"text": "🤖 Запитати ШІ про цей район", "callback_data": f"ai_rn_{region_code}_{raion_idx}"},
         ],
         [
             {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_15m"},
@@ -1156,29 +1165,54 @@ def get_forecast_action_keyboard(
         keyboard = [
             [
                 {"text": "🔄 Оновити прогноз", "callback_data": f"hrn_{region_code}_{raion_idx}_{horizon_code}"},
+                {"text": "🤖 ШІ-Оцінка району", "callback_data": f"ai_rn_{region_code}_{raion_idx}"},
+            ],
+            [
                 {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_{horizon_code}"},
-            ],
-            [
                 {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{region_code}_{raion_idx}"},
-                {"text": "⏱ Інший час", "callback_data": f"rn_{region_code}_{raion_idx}"},
             ],
             [
+                {"text": "⏱ Інший час", "callback_data": f"rn_{region_code}_{raion_idx}"},
                 {"text": "🏘 До районів", "callback_data": f"reg_{region_code}"},
-                {"text": "📍 Змінити область", "callback_data": "menu_zones"},
             ],
+            [{"text": "📍 Змінити область", "callback_data": "menu_zones"}],
         ]
     else:
         keyboard = [
             [
                 {"text": "🔄 Оновити прогноз", "callback_data": f"hor_{region_code}_{horizon_code}"},
-                {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_{horizon_code}"},
+                {"text": "🤖 ШІ-Оцінка області", "callback_data": f"ai_reg_{region_code}"},
             ],
             [
+                {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_{horizon_code}"},
                 {"text": "🏘 Обрати конкретний район", "callback_data": f"reg_{region_code}"},
-                {"text": "⏱ Інший час", "callback_data": f"regall_{region_code}"},
             ],
-            [{"text": "📍 Змінити область", "callback_data": "menu_zones"}],
+            [
+                {"text": "⏱ Інший час", "callback_data": f"regall_{region_code}"},
+                {"text": "📍 Змінити область", "callback_data": "menu_zones"},
+            ],
         ]
+    return {"inline_keyboard": keyboard}
+
+
+def get_mapall_action_keyboard(region_code: str = "kyiv", horizon_code: str = "15m") -> dict:
+    """Builds interactive action keyboard under the all-Ukraine radar threat map."""
+    keyboard = [
+        [
+            {"text": "🔄 Оновити карту", "callback_data": f"mapall_{region_code}_{horizon_code}"},
+            {"text": "🤖 ШІ-Огляд загроз в Україні", "callback_data": "ai_map"},
+        ],
+        [
+            {"text": "⏱ 15 хв", "callback_data": f"mapall_{region_code}_15m"},
+            {"text": "⏱ 30 хв", "callback_data": f"mapall_{region_code}_30m"},
+            {"text": "⏱ 1 год", "callback_data": f"mapall_{region_code}_1h"},
+            {"text": "⏱ 2 год", "callback_data": f"mapall_{region_code}_2h"},
+        ],
+        [
+            {"text": "📍 Меню областей", "callback_data": "menu_zones"},
+            {"text": "🔔 Мої підписки", "callback_data": "menu_tracking"},
+        ],
+    ]
     return {"inline_keyboard": keyboard}
 
 
@@ -1966,13 +2000,113 @@ def run_live_polling(token: str):
                             text=ai_info_text,
                             reply_markup={
                                 "inline_keyboard": [
-                                    [{"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"}],
+                                    [
+                                        {"text": "🤖 ШІ-Огляд по Україні", "callback_data": "ai_map"},
+                                        {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"},
+                                    ],
                                     [{"text": "📍 До вибору областей", "callback_data": "menu_zones"}],
                                 ]
                             },
                             is_photo_message=is_photo_msg,
                             user_active_menu=user_active_menu,
                         )
+
+                    elif data == "ai_map":
+                        telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                        ai_reply = ai_agent.answer_query(
+                            "Яка зараз загальна оперативна обстановка з повітряними загрозами та ворожими БпЛА по Україні? Надай стислий аналітичний огляд.",
+                            chat_id=chat_id,
+                        )
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=ai_reply,
+                            reply_markup={
+                                "inline_keyboard": [
+                                    [
+                                        {"text": "🔄 Оновити ШІ-огляд", "callback_data": "ai_map"},
+                                        {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"},
+                                    ],
+                                    [
+                                        {"text": "📍 До вибору областей", "callback_data": "menu_zones"},
+                                        {"text": "🔔 Мої підписки", "callback_data": "menu_tracking"},
+                                    ],
+                                ]
+                            },
+                            is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
+                        )
+
+                    elif data.startswith("ai_reg_"):
+                        reg_code = data.replace("ai_reg_", "")
+                        reg_meta = ALL_REGIONS.get(reg_code, {})
+                        reg_name = reg_meta.get("name", reg_code)
+                        telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                        ai_reply = ai_agent.answer_query(
+                            f"Яка оперативна ситуація, загрози ворожих БпЛА/ракет та прогноз для області {reg_name}?",
+                            chat_id=chat_id,
+                        )
+                        update_or_send_message(
+                            token=token,
+                            chat_id=chat_id,
+                            message_id=message_id,
+                            text=ai_reply,
+                            reply_markup={
+                                "inline_keyboard": [
+                                    [
+                                        {"text": "🔄 Оновити оцінку області", "callback_data": f"ai_reg_{reg_code}"},
+                                        {"text": "🏘 Райони області", "callback_data": f"reg_{reg_code}"},
+                                    ],
+                                    [
+                                        {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{reg_code}_15m"},
+                                        {"text": "📍 Змінити область", "callback_data": "menu_zones"},
+                                    ],
+                                ]
+                            },
+                            is_photo_message=is_photo_msg,
+                            user_active_menu=user_active_menu,
+                        )
+
+                    elif data.startswith("ai_rn_"):
+                        parts = data.split("_")
+                        if len(parts) >= 4:
+                            reg_code = parts[2]
+                            raion_idx = int(parts[3])
+                            reg_meta = ALL_REGIONS.get(reg_code, {})
+                            reg_name = reg_meta.get("name", reg_code)
+                            raions = reg_meta.get("raions", [])
+                            raion_name = raions[raion_idx] if 0 <= raion_idx < len(raions) else "район"
+
+                            telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                            ai_reply = ai_agent.answer_query(
+                                f"Яка оперативна ситуація, рух БпЛА та ймовірність тривоги для району {raion_name} ({reg_name})?",
+                                chat_id=chat_id,
+                            )
+                            update_or_send_message(
+                                token=token,
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=ai_reply,
+                                reply_markup={
+                                    "inline_keyboard": [
+                                        [
+                                            {"text": "🔄 Оновити оцінку", "callback_data": f"ai_rn_{reg_code}_{raion_idx}"},
+                                            {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{reg_code}_{raion_idx}"},
+                                        ],
+                                        [
+                                            {"text": "⏱ Прогноз на час", "callback_data": f"rn_{reg_code}_{raion_idx}"},
+                                            {"text": "🗺 Карта району", "callback_data": f"map_{reg_code}_{raion_idx}_15m"},
+                                        ],
+                                        [
+                                            {"text": "🏘 До районів", "callback_data": f"reg_{reg_code}"},
+                                            {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
+                                        ],
+                                    ]
+                                },
+                                is_photo_message=is_photo_msg,
+                                user_active_menu=user_active_menu,
+                            )
 
                     elif data == "zone_all":
                         update_or_send_message(
@@ -2107,11 +2241,15 @@ def run_live_polling(token: str):
                                 "inline_keyboard": [
                                     [
                                         {"text": "🔄 Оновити карту", "callback_data": f"map_{region_code}_{raion_idx}_{horizon_code}"},
-                                        {"text": "⏱ Прогноз", "callback_data": f"hrn_{region_code}_{raion_idx}_{horizon_code}"},
+                                        {"text": "🤖 ШІ-Аналіз району", "callback_data": f"ai_rn_{region_code}_{raion_idx}"},
                                     ],
                                     [
+                                        {"text": "⏱ Прогноз", "callback_data": f"hrn_{region_code}_{raion_idx}_{horizon_code}"},
                                         {"text": "🔔 Слідкувати", "callback_data": f"subadd_{region_code}_{raion_idx}"},
+                                    ],
+                                    [
                                         {"text": "🏘 До районів", "callback_data": f"reg_{region_code}"},
+                                        {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
                                     ],
                                 ]
                             }
@@ -2136,7 +2274,13 @@ def run_live_polling(token: str):
                             telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
                         except Exception:
                             pass
-                        p_res = send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=get_macro_zones_keyboard())
+                        p_res = send_telegram_photo(
+                            token,
+                            chat_id,
+                            map_bytes,
+                            caption=caption,
+                            reply_markup=get_mapall_action_keyboard(horizon_code=horizon_code),
+                        )
                         if p_res.get("ok"):
                             user_active_menu[cid_str] = p_res["result"]["message_id"]
 
