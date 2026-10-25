@@ -55,8 +55,8 @@ def run_sources_benchmark() -> Dict[str, Any]:
         line = line.strip()
         if not line.startswith("**"):
             continue
-        # Extract raions mentioned in "areas affected:"
-        areas_m = re.search(r"areas affected:\s*([^\[\n]+)", line, re.I)
+        # Extract raions mentioned in "area affected:" or "areas affected:"
+        areas_m = re.search(r"areas?\s+affected:\s*([^\[\n]+)", line, re.I)
         is_yellow = "yellow" in line.lower()
         level = "YELLOW" if is_yellow else "RED"
 

@@ -463,5 +463,33 @@ def test_compute_dynamic_probability_early_warning():
     assert "НЕ лунають" in expl
 
 
+def test_single_area_affected_parsing():
+    """Verifies that '1 area affected:' isolates that specific raion and leaves other raions CLEAR."""
+    from src.ingestion.alerts_live_client import AlertsInUaLiveClient
+
+    client = AlertsInUaLiveClient()
+    mock_sitrep = """
+## 3. CURRENT WARNING STATUS
+**Chernivetska oblast (Чернівецька область)** — air raid alert in effect since 14:33, ongoing for 30 min. 1 area affected: Dnistrovskyi (Дністровський) [yellow (drone level)].
+## 4. THREAT ACTIVITY
+- None
+"""
+    client.fetch_live_sitrep = lambda force_refresh=False: mock_sitrep
+
+    raions = ["Вижницький район", "Дністровський район", "Чернівецький район"]
+    status = client.get_region_status(["чернівецька", "chernivetska"], "Чернівецька область", raion_names=raions)
+
+    assert status["is_alert"] is True
+    assert status["affected_areas"] == "Дністровський"
+
+    raions_dict = {r["name"]: r for r in status["raions"]}
+    assert raions_dict["Дністровський район"]["active"] is True
+    assert raions_dict["Дністровський район"]["type"] == "YELLOW"
+    assert raions_dict["Чернівецький район"]["active"] is False
+    assert raions_dict["Чернівецький район"]["type"] == "CLEAR"
+    assert raions_dict["Вижницький район"]["active"] is False
+    assert raions_dict["Вижницький район"]["type"] == "CLEAR"
+
+
 
 

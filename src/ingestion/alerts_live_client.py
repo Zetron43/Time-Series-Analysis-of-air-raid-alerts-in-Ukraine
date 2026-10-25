@@ -245,16 +245,20 @@ class AlertsInUaLiveClient:
 
         # Extract affected areas
         affected_areas = ""
-        areas_m = re.search(r"areas affected:\s*([^\[\n]+)", body, re.IGNORECASE)
-        affected_areas_text = areas_m.group(1).strip() if areas_m else ""
+        # Match both "1 area affected:" and "X areas affected:" or "areas affected:"
+        areas_m = re.search(r"areas?\s+affected:\s*(.+)", body, re.IGNORECASE)
+        affected_areas_text = ""
         if areas_m:
             raw_areas = areas_m.group(1).strip()
+            # If "The most recent" sentence follows, strip it from areas list
+            raw_areas = re.split(r"\bThe\s+most\s+recent\b", raw_areas, flags=re.IGNORECASE)[0].strip()
             # Extract Ukrainian names in brackets e.g. (Конотопський)
-            ukr_names = re.findall(r"\(([А-Яа-яіїєґ\s\'-]+)\)", raw_areas)
+            ukr_names = re.findall(r"\(([А-Яа-яіїєґІЇЄҐ0-9\s\'\.-]+)\)", raw_areas)
             if ukr_names:
                 affected_areas = ", ".join(ukr_names)
             else:
                 affected_areas = raw_areas
+            affected_areas_text = raw_areas
         elif "м. київ" in region_name.lower():
             affected_areas = "м. Київ (усі райони)"
 
@@ -267,8 +271,12 @@ class AlertsInUaLiveClient:
         raions_list = []
         if raion_names:
             for r in raion_names:
-                r_stem = re.sub(r"\s+(район|місто|м\.)", "", r, flags=re.I).strip()
-                r_stem = re.sub(r"(ський|цький|зький|івський|овський)$", "", r_stem, flags=re.I)
+                r_clean = re.sub(r"\s+(район|місто|м\.)", "", r, flags=re.I).strip()
+                r_stem = re.sub(r"(ський|цький|зький|івський|овський)$", "", r_clean, flags=re.I)
+                if len(r_stem) < 3:
+                    r_stem = re.sub(r"ий$", "", r_clean, flags=re.I)
+                if len(r_stem) < 3:
+                    r_stem = r_clean
 
                 is_affected = False
                 if not affected_areas_text:
@@ -276,9 +284,35 @@ class AlertsInUaLiveClient:
                     is_affected = True
                 elif len(r_stem) >= 3 and r_stem.lower() in affected_areas_text.lower():
                     is_affected = True
+                elif "(" in r:  # Check aliases like (Берестинський), (Шептицький), (Самарівський)
+                    alias_m = re.findall(r"\(([^)]+)\)", r)
+                    for al in alias_m:
+                        al_clean = re.sub(r"\s+(район|місто|м\.)", "", al, flags=re.I).strip()
+                        al_stem = re.sub(r"(ський|цький|зький|івський|овський)$", "", al_clean, flags=re.I)
+                        if len(al_stem) >= 3 and al_stem.lower() in affected_areas_text.lower():
+                            is_affected = True
+                            break
 
                 if is_affected:
+                    # Check if line differentiates red vs yellow for specific areas (e.g. Kharkiv)
+                    r_type = alert_level
+                    r_badge = default_badge
                     r_status = default_raion_status
+
+                    if "red" in affected_areas_text.lower() and "yellow" in affected_areas_text.lower():
+                        # Sub-parse semicolon parts
+                        for sub_part in affected_areas_text.split(";"):
+                            if len(r_stem) >= 3 and r_stem.lower() in sub_part.lower():
+                                if "red" in sub_part.lower():
+                                    r_type = "RED"
+                                    r_badge = "🔴"
+                                    r_status = "Червоний рівень (Повітряна тривога)"
+                                elif "yellow" in sub_part.lower():
+                                    r_type = "YELLOW"
+                                    r_badge = "🟡"
+                                    r_status = "Жовтий рівень (Загроза БпЛА)"
+                                break
+
                     for k, t_str in recent_add_info.items():
                         if len(r_stem) >= 3 and r_stem.lower() in k:
                             r_status += f" (з {t_str})"
@@ -286,8 +320,8 @@ class AlertsInUaLiveClient:
                     raions_list.append({
                         "name": r,
                         "status": r_status,
-                        "badge": default_badge,
-                        "type": alert_level,
+                        "badge": r_badge,
+                        "type": r_type,
                         "active": True,
                     })
                 else:
