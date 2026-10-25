@@ -1665,6 +1665,19 @@ def update_or_send_message(
                 user_active_menu[cid_str] = message_id
             return res
 
+        # If HTML parse error occurred, retry editing without parse_mode
+        if "can't parse entities" in err_desc:
+            res_plain = telegram_api_call(token, "editMessageText", {
+                "chat_id": chat_id,
+                "message_id": message_id,
+                "text": text,
+                "reply_markup": reply_markup,
+            })
+            if res_plain.get("ok"):
+                if user_active_menu is not None:
+                    user_active_menu[cid_str] = message_id
+                return res_plain
+
     # Original message was a photo/media or lacks editable text -> delete it and send fresh text
     try:
         telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
@@ -1677,6 +1690,14 @@ def update_or_send_message(
         "parse_mode": "HTML",
         "reply_markup": reply_markup,
     })
+    # If HTML entity parsing fails on send, retry in safe plain-text mode
+    if not send_res.get("ok") and "can't parse entities" in str(send_res.get("description", "")).lower():
+        send_res = telegram_api_call(token, "sendMessage", {
+            "chat_id": chat_id,
+            "text": text,
+            "reply_markup": reply_markup,
+        })
+
     if send_res.get("ok") and user_active_menu is not None:
         user_active_menu[cid_str] = send_res["result"]["message_id"]
     return send_res
@@ -2013,10 +2034,12 @@ def run_live_polling(token: str):
 
                     elif data == "ai_map":
                         telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                        print(f"[>] Generating AI overview for Ukraine (chat {chat_id})...", flush=True)
                         ai_reply = ai_agent.answer_query(
                             "Яка зараз загальна оперативна обстановка з повітряними загрозами та ворожими БпЛА по Україні? Надай стислий аналітичний огляд.",
                             chat_id=chat_id,
                         )
+                        print(f"[+] AI overview generated ({len(ai_reply)} chars)", flush=True)
                         update_or_send_message(
                             token=token,
                             chat_id=chat_id,
@@ -2043,10 +2066,12 @@ def run_live_polling(token: str):
                         reg_meta = ALL_REGIONS.get(reg_code, {})
                         reg_name = reg_meta.get("name", reg_code)
                         telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                        print(f"[>] Generating AI briefing for {reg_name} (chat {chat_id})...", flush=True)
                         ai_reply = ai_agent.answer_query(
                             f"Яка оперативна ситуація, загрози ворожих БпЛА/ракет та прогноз для області {reg_name}?",
                             chat_id=chat_id,
                         )
+                        print(f"[+] AI briefing generated ({len(ai_reply)} chars)", flush=True)
                         update_or_send_message(
                             token=token,
                             chat_id=chat_id,
@@ -2079,10 +2104,12 @@ def run_live_polling(token: str):
                             raion_name = raions[raion_idx] if 0 <= raion_idx < len(raions) else "район"
 
                             telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                            print(f"[>] Generating AI briefing for raion {raion_name} ({reg_name}, chat {chat_id})...", flush=True)
                             ai_reply = ai_agent.answer_query(
                                 f"Яка оперативна ситуація, рух БпЛА та ймовірність тривоги для району {raion_name} ({reg_name})?",
                                 chat_id=chat_id,
                             )
+                            print(f"[+] AI briefing generated for raion ({len(ai_reply)} chars)", flush=True)
                             update_or_send_message(
                                 token=token,
                                 chat_id=chat_id,
