@@ -356,6 +356,41 @@ class AlertsInUaLiveClient:
             "timestamp": kyiv_time,
         }
 
+    def get_all_raions_live_status(
+        self,
+        all_regions_dict: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Dict[str, Any]]:
+        """Parses the alerts.in.ua sitrep and returns independent alert status for ALL raions of Ukraine.
+
+        Guarantees that each raion operates independently: an alert in 1 raion of an oblast
+        does NOT taint other raions in that oblast.
+        """
+        if all_regions_dict is None:
+            from src.bot.interactive_bot import ALL_REGIONS
+            all_regions_dict = ALL_REGIONS
+
+        raions_map: Dict[str, Dict[str, Any]] = {}
+        for reg_code, reg_meta in all_regions_dict.items():
+            reg_name = reg_meta.get("name", reg_code)
+            reg_keys = reg_meta.get("keys", [reg_name])
+            r_names = reg_meta.get("raions", [])
+
+            reg_status = self.get_region_status(reg_keys, reg_name, raion_names=r_names)
+            for r_item in reg_status.get("raions", []):
+                r_name = r_item.get("name")
+                if r_name:
+                    raions_map[r_name] = {
+                        "name": r_name,
+                        "region_name": reg_name,
+                        "region_code": reg_code,
+                        "level": r_item.get("type", "CLEAR"),
+                        "active": r_item.get("active", False),
+                        "status": r_item.get("status", "Спокійно"),
+                        "badge": r_item.get("badge", "🟢"),
+                        "duration_info": reg_status.get("duration_info", ""),
+                    }
+        return raions_map
+
     def _find_threats_for_region(self, search_keys: List[str], sec4: str, sec6: str) -> Dict[str, Any]:
         """Searches threat activity and Air Force messages for items relevant to region."""
         all_threat_lines = []

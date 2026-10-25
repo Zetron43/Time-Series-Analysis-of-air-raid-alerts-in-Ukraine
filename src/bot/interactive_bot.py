@@ -32,6 +32,10 @@ from zoneinfo import ZoneInfo
 import numpy as np
 import pandas as pd
 
+_ROOT_DIR = str(Path(__file__).resolve().parents[2])
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
+
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="backslashreplace")
 if hasattr(sys.stderr, "reconfigure"):
@@ -820,6 +824,10 @@ class ThreatAnalyzer:
             is_radar_warning=has_radar_warning,
         )
 
+        # 5. Drone classification (confirmed radar vs probable / acoustic)
+        classified_local = self.neptun_client.classify_drones(local_uavs)
+        countrywide_drones = self.neptun_client.classify_drones()
+
         return {
             "region_code": region_code,
             "region_name": region_name,
@@ -829,6 +837,11 @@ class ThreatAnalyzer:
             "has_radar_warning": has_radar_warning,
             "neighbors_alarms": neighbors_alarms,
             "local_drones": local_uavs,
+            "local_confirmed_drones": classified_local["confirmed_threats"],
+            "local_probable_drones": classified_local["probable_threats"],
+            "local_confirmed_count": classified_local["confirmed_count"],
+            "local_probable_count": classified_local["probable_count"],
+            "countrywide_drones": countrywide_drones,
             "horizon_label": horizon_info["label"],
             "horizon_minutes": horizon_info["minutes"],
             "current_kyiv_time": now_kyiv,
@@ -852,6 +865,11 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
     threats = data["threats"]
     neighbors_alarms = data.get("neighbors_alarms", [])
     local_drones = data.get("local_drones", [])
+    local_conf_drones = data.get("local_confirmed_drones", [])
+    local_prob_drones = data.get("local_probable_drones", [])
+    conf_count = data.get("local_confirmed_count", 0)
+    prob_count = data.get("local_probable_count", 0)
+    country_drones = data.get("countrywide_drones", {})
 
     # Visual risk badge for probability
     if prob < 0.20:
@@ -890,7 +908,7 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
         elif is_warning:
             lines.append(f"⚠️ <b>{raion_name}:</b> 🟡 <b>Превентивна загроза</b> (сирени в районі ще <u>НЕ лунають</u>)")
         else:
-            lines.append(f"🟢 <b>{raion_name}:</b> Спокійно (без тривоги)")
+            lines.append(f"🟢 <b>{raion_name}:</b> Спокійно (сирени не лунають)")
 
         if neighbors_alarms:
             lines.extend([
@@ -910,12 +928,26 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
             lines.extend([
                 "",
                 f"🛸 <b>БпЛА В ЗОНІ РАЙОНУ (Neptun Live Radar):</b>",
+                f"Всього цілей: {len(local_drones)} (🔴 {conf_count} підтверджено радарами, 🟡 {prob_count} ймовірних / дорозвідка)",
             ])
-            for d in local_drones[:3]:
+            for d in local_conf_drones[:2]:
                 h = d.get("heading")
                 h_str = f", курс {int(h)}°" if h is not None else ""
                 loc = d.get("locality") or d.get("district") or "в межах району"
-                lines.append(f"• 🚨 <b>Ціль:</b> {loc}{h_str} (джерел: {d.get('sourceCount', 1)})")
+                lines.append(f"• 🔴 <b>Підтверджено:</b> {loc}{h_str} (джерел: {d.get('sourceCount', 1)})")
+            for d in local_prob_drones[:2]:
+                h = d.get("heading")
+                h_str = f", курс {int(h)}°" if h is not None else ""
+                loc = d.get("locality") or d.get("district") or "в межах району"
+                lines.append(f"• 🟡 <b>Ймовірний:</b> {loc}{h_str} (дорозвідка/розрахунковий)")
+        else:
+            lines.extend([
+                "",
+                "🛸 <b>БпЛА в районі:</b> активних цілей у межах району не виявлено",
+            ])
+
+        if country_drones and country_drones.get("total_count", 0) > 0:
+            lines.append(f"🌍 <i>По Україні загалом: {country_drones['total_count']} БпЛА ({country_drones['confirmed_count']} підтверджено, {country_drones['probable_count']} ймовірних)</i>")
 
         if is_official:
             prob_title = "Ймовірність продовження тривоги в районі"
@@ -1050,6 +1082,11 @@ def format_raion_selection_overview(region_code: str, raion_name: str) -> str:
     is_warn = res.get("has_radar_warning", False)
     nb_alarms = res.get("neighbors_alarms", [])
     local_drones = res.get("local_drones", [])
+    local_conf_drones = res.get("local_confirmed_drones", [])
+    local_prob_drones = res.get("local_probable_drones", [])
+    conf_count = res.get("local_confirmed_count", 0)
+    prob_count = res.get("local_probable_count", 0)
+    country_drones = res.get("countrywide_drones", {})
 
     lines = [
         f"🏘 <b>{raion_name.upper()} — ОПЕРАТИВНИЙ СТАН</b>",
@@ -1080,8 +1117,26 @@ def format_raion_selection_overview(region_code: str, raion_name: str) -> str:
     if local_drones:
         lines.extend([
             "",
-            f"🛸 <b>БпЛА курсом у зону району:</b> зафіксовано {len(local_drones)} ціль(ей)!",
+            f"🛸 <b>БпЛА В ЗОНІ РАЙОНУ: {len(local_drones)} ціль(ей)</b>",
+            f"• 🔴 <b>Підтверджено радарами:</b> {conf_count} од.",
+            f"• 🟡 <b>Ймовірні / дорозвідка:</b> {prob_count} од.",
         ])
+        for d in local_conf_drones[:2]:
+            h = d.get("heading")
+            h_str = f", курс {int(h)}°" if h is not None else ""
+            lines.append(f"  └ 🔴 Радар: {d.get('locality') or d.get('district') or 'зона району'}{h_str} (джерел: {d.get('sourceCount', 1)})")
+        for d in local_prob_drones[:2]:
+            h = d.get("heading")
+            h_str = f", курс {int(h)}°" if h is not None else ""
+            lines.append(f"  └ 🟡 Ймовірний: {d.get('locality') or d.get('district') or 'зона району'}{h_str} (дорозвідка/розрахунковий)")
+    else:
+        lines.extend([
+            "",
+            "🛸 <b>БпЛА в районі:</b> активних цілей у повітряному просторі району немає",
+        ])
+
+    if country_drones and country_drones.get("total_count", 0) > 0:
+        lines.append(f"🌍 <i>По Україні загалом: {country_drones['total_count']} БпЛА ({country_drones['confirmed_count']} підтверджено, {country_drones['probable_count']} ймовірних)</i>")
 
     lines.extend([
         "",
@@ -1092,7 +1147,10 @@ def format_raion_selection_overview(region_code: str, raion_name: str) -> str:
 
 
 def format_region_selection_overview(region_code: str) -> str:
-    """Builds the comprehensive region status message showing all raions upon region selection."""
+    """Builds the comprehensive region status message showing all raions upon region selection.
+
+    Treats raions as the primary autonomous security units; oblasts serve as selection hubs.
+    """
     analyzer = ThreatAnalyzer()
     reg_meta = ALL_REGIONS.get(region_code, ALL_REGIONS["kyiv"])
     region_name = reg_meta["name"]
@@ -1102,31 +1160,65 @@ def format_region_selection_overview(region_code: str) -> str:
     live = analyzer.live_client.get_region_status(search_keys, region_name, raion_names=raion_names)
     now_str = live["timestamp"].strftime("%H:%M:%S")
 
-    lines = [
-        f"📍 <b>{region_name.upper()} — ОПЕРАТИВНИЙ СТАН</b>",
-        f"🕒 <b>Оновлено о:</b> {now_str} (Київський час)",
-        f"📡 <b>Загальний статус (alerts.in.ua):</b> {live['badge']}",
-        f"{live['status_text']}",
-    ]
-    if live.get("duration_info"):
-        lines.append(f"⏱ <b>{live['duration_info']}</b>")
-    if live.get("affected_areas"):
-        lines.append(f"📍 <b>Охоплено:</b> {live['affected_areas']}")
-
     raions = live.get("raions", [])
-    if raions:
-        lines.extend([
-            "",
-            "━━━━━━━━━━━━━━━━━━━━━━",
-            "🏘 <b>СТАН ПО КОЖНОМУ РАЙОНУ:</b>",
-        ])
-        for r in raions:
-            lines.append(f"• {r['badge']} <b>{r['name']}</b> — {r['status']}")
+    active_raions = [r for r in raions if r.get("active")]
+    clear_raions = [r for r in raions if not r.get("active")]
+
+    # Get local drone threats in this oblast from neptun
+    nep_threats = analyzer.neptun_client.get_threats()
+    reg_clean = region_name.lower().replace(" область", "").replace("м. ", "").strip()
+    local_threats = [
+        t for t in nep_threats
+        if reg_clean in (t.get("region") or "").lower() or reg_clean in (t.get("district") or "").lower()
+    ]
+    classified_local = analyzer.neptun_client.classify_drones(local_threats)
+    country_drones = analyzer.neptun_client.classify_drones()
+
+    lines = [
+        f"📍 <b>{region_name.upper()} — ВИБІР РАЙОНУ</b>",
+        f"🕒 <b>Оновлено о:</b> {now_str} (Київський час)",
+        "ℹ️ <i>Область є навігаційним меню. Кожен район функціонує незалежно — тривога в одному районі не означає тривогу по всій області.</i>",
+    ]
+
+    if live.get("alert_level") == "NOMINAL":
+        lines.append(f"📡 <b>Особливий статус:</b> {live['badge']}")
 
     lines.extend([
         "",
         "━━━━━━━━━━━━━━━━━━━━━━",
-        "⏱ <b>Оберіть часовий горизонт прогнозу загрози:</b>",
+    ])
+
+    if active_raions:
+        lines.append(f"🚨 <b>ТРИВОГА В ОКРЕМИХ РАЙОНАХ ({len(active_raions)} з {len(raions)}):</b>")
+        for r in active_raions:
+            lines.append(f"• {r['badge']} <b>{r['name']}</b> — {r['status']}")
+    else:
+        lines.append(f"🟢 <b>В УСІХ РАЙОНАХ ОБЛАСТІ СПОКІЙНО ({len(raions)} районів без тривоги)</b>")
+
+    if clear_raions and active_raions:
+        lines.extend([
+            "",
+            f"🟢 <b>СПОКІЙНІ РАЙОНИ БЕЗ ТРИВОГИ ({len(clear_raions)}):</b>",
+        ])
+        for r in clear_raions:
+            lines.append(f"• 🟢 <b>{r['name']}</b> — Спокійно (сирени не лунають)")
+
+    if classified_local["total_count"] > 0:
+        lines.extend([
+            "",
+            f"🛸 <b>БпЛА над областю / курсом:</b> {classified_local['total_count']} цілей "
+            f"(🔴 {classified_local['confirmed_count']} підтверджено радарами, 🟡 {classified_local['probable_count']} ймовірних / дорозвідка)",
+        ])
+    elif country_drones and country_drones.get("total_count", 0) > 0:
+        lines.extend([
+            "",
+            f"🌍 <i>По Україні загалом: {country_drones['total_count']} БпЛА ({country_drones['confirmed_count']} підтверджено, {country_drones['probable_count']} ймовірних)</i>",
+        ])
+
+    lines.extend([
+        "",
+        "━━━━━━━━━━━━━━━━━━━━━━",
+        "⏱ <b>Оберіть ваш район нижче для точного прогнозу та карти:</b>",
     ])
     return "\n".join(lines)
 
@@ -1213,11 +1305,27 @@ def get_horizon_keyboard(region_code: str) -> dict:
     return {"inline_keyboard": keyboard}
 
 
-def get_raions_keyboard(region_code: str) -> dict:
-    """Builds Telegram Inline Keyboard for choosing a specific raion in the region."""
+def get_raions_keyboard(region_code: str, raions_status_map: Optional[Dict[str, Dict[str, Any]]] = None) -> dict:
+    """Builds Telegram Inline Keyboard for choosing a specific raion in the region.
+
+    Displays independent real-time status emoji (🔴 official alert, 🟡 warning, 🟢 clear) for each raion.
+    """
     reg_meta = ALL_REGIONS.get(region_code, {})
     raions = reg_meta.get("raions", [])
     zone_code = reg_meta.get("zone", "zone_north")
+
+    if raions_status_map is None:
+        try:
+            from src.ingestion.alerts_live_client import AlertsInUaLiveClient
+            client = AlertsInUaLiveClient()
+            reg_status = client.get_region_status(
+                reg_meta.get("keys", []),
+                reg_meta.get("name", region_code),
+                raion_names=raions,
+            )
+            raions_status_map = {r["name"]: r for r in reg_status.get("raions", [])}
+        except Exception:
+            raions_status_map = {}
 
     keyboard = []
     for i in range(0, len(raions), 2):
@@ -1225,8 +1333,10 @@ def get_raions_keyboard(region_code: str) -> dict:
         for idx in range(i, min(i + 2, len(raions))):
             r_name = raions[idx]
             short_name = r_name.replace(" район", "").strip()
+            r_info = raions_status_map.get(r_name, {}) if raions_status_map else {}
+            badge = r_info.get("badge", "🟢") if r_info else "🟢"
             row.append({
-                "text": f"🏘 {short_name}",
+                "text": f"{badge} {short_name}",
                 "callback_data": f"rn_{region_code}_{idx}",
             })
         keyboard.append(row)

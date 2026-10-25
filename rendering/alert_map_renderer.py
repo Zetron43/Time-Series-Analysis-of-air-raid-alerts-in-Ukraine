@@ -37,25 +37,49 @@ class AlertMapRenderer:
         target_str = (now_kyiv + datetime.resolution * 0).strftime("%H:%M") # placeholder
 
         # 1. Gather live data
+        alerts_client = AlertsInUaLiveClient()
         neptun = NeptunClient()
         dimap = DimapClient()
 
+        # Ground-truth raion alerts from alerts.in.ua
+        alerts_raions = {}
+        try:
+            alerts_raions = alerts_client.get_all_raions_live_status()
+        except Exception:
+            pass
+
+        # Classified drones from Neptun (radar verified vs probable/acoustic)
         threats = neptun.get_threats()
+        classified = neptun.classify_drones(threats)
+        confirmed_threats = classified["confirmed_threats"]
+        probable_threats = classified["probable_threats"]
+        confirmed_count = classified["confirmed_count"]
+        probable_count = classified["probable_count"]
+        total_drones = classified["total_count"]
+
+        # Radar and crowdsourced raion alerts
         nep_alerts = neptun.get_alerts()
         dimap_alerts = dimap.get_alerts()
 
-        # Build raion status dictionary
+        # Build independent raion status dictionary
         raion_levels: Dict[str, str] = {}
 
-        # Fill from neptun
-        for item in nep_alerts.get("raions", []):
-            r_name = item.get("name", "").strip().lower()
-            lvl = item.get("level", "yellow").upper()
-            raion_levels[r_name] = lvl
+        # 1.1 Alerts.in.ua raion status (Ground Truth)
+        for r_full_name, r_info in alerts_raions.items():
+            r_clean = r_full_name.lower().replace(" район", "").strip()
+            if r_info.get("active"):
+                raion_levels[r_clean] = r_info.get("level", "YELLOW").upper()
 
-        # Fill from dimap
+        # 1.2 Supplement with Neptun radar warnings if clear in official sirens
+        for item in nep_alerts.get("raions", []):
+            r_name = item.get("name", "").strip().lower().replace(" район", "")
+            lvl = item.get("level", "yellow").upper()
+            if r_name not in raion_levels:
+                raion_levels[r_name] = lvl
+
+        # 1.3 Supplement with Dimap raion alerts
         for item in dimap_alerts:
-            reg = item.get("region", "").strip().lower()
+            reg = item.get("region", "").strip().lower().replace(" район", "")
             color = item.get("color", "red").upper()
             lvl = "RED" if color == "RED" else "YELLOW"
             if reg not in raion_levels or lvl == "RED":
@@ -86,21 +110,34 @@ class AlertMapRenderer:
         red_count = 0
         yellow_count = 0
 
-        # Draw all raion polygons
+        RAION_ALIASES = {
+            "володимир-волинський": "володимирський",
+            "новоград-волинський": "звягельський",
+        }
+
+        # Draw all 137 raion polygons strictly independently
         for feat in self.geojson.get("features", []):
             props = feat.get("properties", {})
             geom = feat.get("geometry", {})
             r_name = props.get("rayon", "")
             r_lower = r_name.lower().replace(" район", "").strip()
+            if r_lower in RAION_ALIASES:
+                r_lower = RAION_ALIASES[r_lower]
 
             # Determine alert status
             is_nominal = any(w in r_lower for w in ["крим", "севастополь", "луганськ", "донецьк"])
             matched_level = None
 
-            for k, lvl in raion_levels.items():
-                if r_lower in k or k in r_lower:
-                    matched_level = lvl
-                    break
+            if "київ" in r_lower:
+                for k, v in alerts_raions.items():
+                    if "київ" in v.get("region_name", "").lower() and v.get("active"):
+                        matched_level = v.get("level", "YELLOW")
+                        break
+            else:
+                for k, lvl in raion_levels.items():
+                    if r_lower in k or k in r_lower:
+                        matched_level = lvl
+                        break
 
             if is_nominal and not matched_level:
                 face = COLOR_NOMINAL
@@ -110,13 +147,13 @@ class AlertMapRenderer:
             elif matched_level == "RED":
                 face = COLOR_RED
                 edge = COLOR_RED_BORDER
-                lw = 0.8
+                lw = 0.85
                 alpha = 0.75
                 red_count += 1
             elif matched_level == "YELLOW":
                 face = COLOR_YELLOW
                 edge = COLOR_YELLOW_BORDER
-                lw = 0.8
+                lw = 0.85
                 alpha = 0.70
                 yellow_count += 1
             else:
@@ -129,7 +166,7 @@ class AlertMapRenderer:
             if highlight_raion and (highlight_raion.lower() in r_name.lower() or r_name.lower() in highlight_raion.lower()):
                 is_highlighted = True
                 edge = COLOR_HIGHLIGHT
-                lw = 2.2
+                lw = 2.4
 
             gtype = geom.get("type")
             coords = geom.get("coordinates", [])
@@ -149,39 +186,37 @@ class AlertMapRenderer:
                     )
                     ax.add_patch(patch)
 
-        # 2. Draw active drones and forecast vectors
+        # 2. Draw active drones (Confirmed vs Probable)
         drone_speed_kmh = 180.0
         dist_km = drone_speed_kmh * (horizon_minutes / 60.0)
-        active_uavs = 0
 
-        for t in threats:
+        # 2.1 Draw Confirmed Drones (Solid Red markers & solid extrapolation lines)
+        for t in confirmed_threats:
             lat = t.get("lat")
             lon = t.get("lon")
             if lat is None or lon is None:
                 continue
 
-            active_uavs += 1
             heading = t.get("heading")
-            count = t.get("count") or 1
+            count = int(t.get("count", 1) or 1)
 
-            # Current position marker
-            ax.plot(lon, lat, marker="o", markersize=7, color="#ef4444", zorder=10)
-            ax.plot(lon, lat, marker="o", markersize=14, color="#ef4444", alpha=0.35, zorder=9)
+            # Solid Red position marker
+            ax.plot(lon, lat, marker="o", markersize=8, color="#ef4444", zorder=12)
+            ax.plot(lon, lat, marker="o", markersize=16, color="#ef4444", alpha=0.35, zorder=11)
 
-            # Annotation text
             count_label = f" x{count}" if count > 1 else ""
             ax.text(
                 lon + 0.08,
                 lat + 0.06,
-                f"БпЛА{count_label}",
+                f"БпЛА{count_label} (радар)",
                 color="#ffffff",
                 fontsize=7.5,
                 fontweight="bold",
-                zorder=12,
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="#1e1e2f", edgecolor="#ef4444", alpha=0.85, linewidth=0.6),
+                zorder=14,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="#1e1e2f", edgecolor="#ef4444", alpha=0.90, linewidth=0.8),
             )
 
-            # Draw vector if heading is available
+            # Extrapolation vector
             if heading is not None:
                 heading_rad = math.radians(heading)
                 d_lat = (dist_km * math.cos(heading_rad)) / 111.0
@@ -190,13 +225,11 @@ class AlertMapRenderer:
                 target_lat = lat + d_lat
                 target_lon = lon + d_lon
 
-                # Vector line
-                ax.plot([lon, target_lon], [lat, target_lat], color="#f43f5e", linestyle="--", linewidth=1.4, alpha=0.85, zorder=8)
+                ax.plot([lon, target_lon], [lat, target_lat], color="#f43f5e", linestyle="-", linewidth=1.6, alpha=0.90, zorder=10)
 
-                # Future position halo
                 horizon_label = f"+{horizon_minutes}хв" if horizon_minutes < 60 else f"+{horizon_minutes//60}г"
-                ax.plot(target_lon, target_lat, marker="x", markersize=6, color="#f43f5e", zorder=10)
-                circle = patches.Circle((target_lon, target_lat), radius=0.20, color="#f43f5e", fill=True, alpha=0.15, zorder=7)
+                ax.plot(target_lon, target_lat, marker="x", markersize=6.5, color="#f43f5e", zorder=12)
+                circle = patches.Circle((target_lon, target_lat), radius=0.20, color="#f43f5e", fill=True, alpha=0.20, zorder=9)
                 ax.add_patch(circle)
                 ax.text(
                     target_lon + 0.05,
@@ -205,31 +238,86 @@ class AlertMapRenderer:
                     color="#fca5a5",
                     fontsize=7,
                     fontweight="bold",
+                    zorder=13,
+                )
+
+        # 2.2 Draw Probable Drones (Amber-Orange markers & dashed extrapolation lines)
+        for t in probable_threats:
+            lat = t.get("lat")
+            lon = t.get("lon")
+            if lat is None or lon is None:
+                continue
+
+            heading = t.get("heading")
+            count = int(t.get("count", 1) or 1)
+
+            # Amber position marker
+            ax.plot(lon, lat, marker="o", markersize=6.5, color="#f59e0b", zorder=10)
+            ax.plot(lon, lat, marker="o", markersize=13, color="#f59e0b", alpha=0.30, zorder=9)
+
+            count_label = f" x{count}" if count > 1 else ""
+            ax.text(
+                lon + 0.08,
+                lat + 0.06,
+                f"БпЛА{count_label} (ймов.)",
+                color="#fef3c7",
+                fontsize=7.0,
+                fontweight="bold",
+                zorder=13,
+                bbox=dict(boxstyle="round,pad=0.2", facecolor="#1e1e2f", edgecolor="#f59e0b", alpha=0.85, linewidth=0.7),
+            )
+
+            # Extrapolation vector
+            if heading is not None:
+                heading_rad = math.radians(heading)
+                d_lat = (dist_km * math.cos(heading_rad)) / 111.0
+                d_lon = (dist_km * math.sin(heading_rad)) / (111.0 * math.cos(math.radians(lat)))
+
+                target_lat = lat + d_lat
+                target_lon = lon + d_lon
+
+                ax.plot([lon, target_lon], [lat, target_lat], color="#fbbf24", linestyle="--", linewidth=1.3, alpha=0.75, zorder=8)
+
+                horizon_label = f"+{horizon_minutes}хв" if horizon_minutes < 60 else f"+{horizon_minutes//60}г"
+                ax.plot(target_lon, target_lat, marker="x", markersize=5.5, color="#fbbf24", zorder=10)
+                circle = patches.Circle((target_lon, target_lat), radius=0.18, color="#fbbf24", fill=True, alpha=0.14, zorder=7)
+                ax.add_patch(circle)
+                ax.text(
+                    target_lon + 0.05,
+                    target_lat - 0.08,
+                    f"{horizon_label}?",
+                    color="#fde68a",
+                    fontsize=6.8,
+                    fontweight="bold",
                     zorder=11,
                 )
 
         # Title & Subtitle Banner
-        fig.text(0.04, 0.94, "КАРТА ПОВІТРЯНИХ ЗАГРОЗ ТА ВЕКТОРІВ БпЛА УКРАЇНИ", color="#f8fafc", fontsize=15, fontweight="bold")
-        sub_text = f"Оновлено о {now_str} • Горизонт екстраполяції: +{horizon_minutes} хв (швидкість дрона ~{int(drone_speed_kmh)} км/год)"
-        fig.text(0.04, 0.91, sub_text, color="#94a3b8", fontsize=9.5)
+        fig.text(0.04, 0.94, "КАРТА ПОВІТРЯНИХ ЗАГРОЗ ТА ВЕКТОРІВ БпЛА (РАЙОНИ УКРАЇНИ)", color="#f8fafc", fontsize=15, fontweight="bold")
+        sub_text = (
+            f"Оновлено о {now_str} • Горизонт: +{horizon_minutes} хв • "
+            f"Всього БпЛА: {total_drones} (підтверджено: {confirmed_count}, ймовірні/дорозвідка: {probable_count})"
+        )
+        fig.text(0.04, 0.91, sub_text, color="#94a3b8", fontsize=9.2)
 
         # Legend Box
         legend_x = 0.04
-        legend_y = 0.06
+        legend_y = 0.05
         leg_items = [
-            ("● Червоний", "Ракетна/повітряна тривога"),
-            ("● Жовтий", "Загроза ударних дронів (БпЛА)"),
-            ("▲ Маркер", f"Позиція цілі (активно {active_uavs} БпЛА)"),
-            ("--> Пунктир", f"Прогноз положення через {horizon_minutes} хв"),
+            ("● Червоний район", f"Офіційна повітряна/ракетна тривога ({red_count} районів)"),
+            ("● Жовтий район", f"Загроза ударних дронів / БпЛА ({yellow_count} районів)"),
+            ("● Червоний маркер", f"Підтверджений БпЛА (радар) — {confirmed_count} од."),
+            ("● Жовтий маркер", f"Ймовірний / розрахунковий БпЛА — {probable_count} од."),
+            ("--> Стрілка", f"Прогноз положення через {horizon_minutes} хв (~{int(drone_speed_kmh)} км/год)"),
         ]
         if highlight_raion:
-            leg_items.append(("■ Контур", f"Ваш район: {highlight_raion}"))
+            leg_items.append(("■ Блакитний контур", f"Ваш район: {highlight_raion}"))
 
-        fig.text(legend_x, legend_y + 0.12, "ЛЕГЕНДА ЗАГРОЗ:", color="#e2e8f0", fontsize=9, fontweight="bold")
+        fig.text(legend_x, legend_y + 0.14, "ЛЕГЕНДА ЗАГРОЗ (НЕЗАЛЕЖНІ РАЙОНИ):", color="#e2e8f0", fontsize=9, fontweight="bold")
         for i, (tag, desc) in enumerate(leg_items):
-            y_pos = legend_y + 0.09 - (i * 0.026)
-            fig.text(legend_x, y_pos, f"• {tag}: ", color="#cbd5e1", fontsize=8.2, fontweight="bold")
-            fig.text(legend_x + 0.10, y_pos, desc, color="#94a3b8", fontsize=8.2)
+            y_pos = legend_y + 0.11 - (i * 0.024)
+            fig.text(legend_x, y_pos, f"• {tag}: ", color="#cbd5e1", fontsize=8.0, fontweight="bold")
+            fig.text(legend_x + 0.14, y_pos, desc, color="#94a3b8", fontsize=8.0)
 
         # Save buffer
         buf = io.BytesIO()

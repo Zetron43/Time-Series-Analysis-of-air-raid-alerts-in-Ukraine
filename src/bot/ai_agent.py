@@ -84,16 +84,58 @@ class AirRaidAIAgent:
 
     @staticmethod
     def get_live_alerts_overview(region_filter: str = "") -> str:
-        """Отримує поточну оперативну інформацію про активні повітряні тривоги по всій Україні або конкретній області.
+        """Отримує поточну оперативну інформацію про активні повітряні тривоги по всій Україні або конкретній області/району.
 
         Args:
-            region_filter: Назва області або код (наприклад: 'київська', 'харків', 'львів'). Якщо порожньо — повертає зведення по всіх тривогах в Україні.
+            region_filter: Назва області або конкретного району (наприклад: 'київська', 'дністровський', 'харків', 'львів'). Якщо порожньо — повертає зведення по всіх тривогах в Україні.
         """
         try:
             from src.ingestion.alerts_live_client import AlertsInUaLiveClient
             from src.bot.interactive_bot import ALL_REGIONS
 
             client = AlertsInUaLiveClient()
+            now_str = datetime.now(KYIV_TZ).strftime("%H:%M:%S")
+
+            if region_filter:
+                rf = region_filter.lower().strip()
+                # 1. First check if it matches a specific raion directly
+                all_raions_status = client.get_all_raions_live_status()
+                for r_name, r_info in all_raions_status.items():
+                    r_clean = r_name.lower().replace(" район", "").strip()
+                    if rf == r_clean or rf in r_name.lower():
+                        lvl = r_info.get("level", "CLEAR")
+                        badge = r_info.get("badge", "🟢")
+                        status_str = r_info.get("status", "Спокійно")
+                        obl = r_info.get("region_name", "")
+                        if r_info.get("active"):
+                            return f"Станом на {now_str} у районі {r_name} ({obl}) ОГОЛОШЕНО ТРИВОГУ! Рівень: {lvl} {badge}. Стан: {status_str}."
+                        else:
+                            return f"Станом на {now_str} у районі {r_name} ({obl}) тривоги НЕМАЄ (спокійно, сирени не лунають). Стан: {status_str}."
+
+                # 2. Check if it matches an oblast
+                for r_code, r_meta in ALL_REGIONS.items():
+                    r_name = r_meta.get("name", "")
+                    if rf in r_name.lower() or rf in r_code.lower() or any(k in rf for k in r_meta.get("keys", [])):
+                        reg_status = client.get_region_status(
+                            r_meta.get("keys", [r_code]),
+                            r_name,
+                            raion_names=r_meta.get("raions", []),
+                        )
+                        raions = reg_status.get("raions", [])
+                        active_raions = [r for r in raions if r.get("active")]
+                        clear_raions = [r for r in raions if not r.get("active")]
+
+                        if active_raions:
+                            active_desc = ", ".join([f"{r['name']} ({r['badge']} {r['status']})" for r in active_raions])
+                            clear_desc = f"{len(clear_raions)} районів спокійні" if clear_raions else "усі райони під тривогою"
+                            return (
+                                f"Станом на {now_str} в області {r_name} тривога діє лише в окремих районах: {active_desc}.\n"
+                                f"В іншій частині області: {clear_desc} (сирени не лунають)."
+                            )
+                        else:
+                            return f"Станом на {now_str} в області {r_name} повітряної тривоги немає в жодному з районів (чисто, сирени не лунають)."
+
+            # Countrywide overview
             active_regions = []
             for r_code, r_meta in ALL_REGIONS.items():
                 status = client.get_region_status(
@@ -101,30 +143,20 @@ class AirRaidAIAgent:
                     region_name=r_meta.get("name", r_code),
                     raion_names=r_meta.get("raions", []),
                 )
-                if status.get("is_alert") or status.get("alert_now"):
+                if status.get("is_alert"):
+                    active_r = [r["name"] for r in status.get("raions", []) if r.get("active")]
+                    r_summary = f"{len(active_r)}/{len(status.get('raions', []))} районів" if active_r else "вся область"
                     active_regions.append({
-                        "code": r_code,
                         "name": r_meta["name"],
-                        "type": status.get("alert_level", "RED"),
                         "threat": status.get("badge", "Повітряна тривога"),
+                        "raions_str": r_summary,
                     })
 
-            now_str = datetime.now(KYIV_TZ).strftime("%H:%M:%S")
-
-            if region_filter:
-                rf = region_filter.lower().strip()
-                matched = [r for r in active_regions if rf in r["name"].lower() or rf in r["code"].lower()]
-                if matched:
-                    m = matched[0]
-                    return f"Станом на {now_str} в області {m['name']} ОГОЛОШЕНО ТРИВОГУ! Рівень: {m['type']}, Загроза: {m['threat']}."
-                else:
-                    return f"Станом на {now_str} в області '{region_filter}' активної повітряної тривоги НЕ зафіксовано."
-
             if not active_regions:
-                return f"Станом на {now_str} в Україні активних тривог немає (чисте небо)."
+                return f"Станом на {now_str} в Україні активних тривог немає (чисте небо по всіх районах)."
 
-            reg_names = [f"• {r['name']} ({r['threat']})" for r in active_regions]
-            return f"Станом на {now_str} повітряна тривога активна у {len(active_regions)} регіонах:\n" + "\n".join(reg_names)
+            reg_names = [f"• {r['name']} ({r['threat']}, охоплено: {r['raions_str']})" for r in active_regions]
+            return f"Станом на {now_str} повітряна тривога активна у {len(active_regions)} областях (по окремих або всіх районах):\n" + "\n".join(reg_names)
         except Exception as e:
             return f"Помилка отримання даних alerts.in.ua: {e}"
 
@@ -139,7 +171,7 @@ class AirRaidAIAgent:
         Args:
             region: Область України (наприклад: 'київська', 'сумська', 'дніпропетровська', 'львівська').
             horizon: Горизонт прогнозу: '15m' (15 хв), '30m' (30 хв), '1h' (1 година), '2h' (2 години).
-            raion_name: Назва району для локального аналізу (опціонально, наприклад: 'Шосткинський район', 'Бучанський район').
+            raion_name: Назва конкретного району (наприклад: 'Шосткинський район', 'Бучанський район').
         """
         try:
             from src.bot.interactive_bot import ALL_REGIONS, ThreatAnalyzer
@@ -167,19 +199,26 @@ class AirRaidAIAgent:
             elif is_warning:
                 status_str = f"⚠️ РАННЄ ПОПЕРЕДЖЕННЯ: загроза БпЛА / радари (сирени в районі ще НЕ лунають)"
             elif res.get("neighbors_alarms"):
-                status_str = f"⚠️ РАННЄ ПОПЕРЕДЖЕННЯ: тривога у {len(res['neighbors_alarms'])} сусідніх районах (у районі чисто)"
+                status_str = f"⚠️ РАННЄ ПОПЕРЕДЖЕННЯ: тривога у {len(res['neighbors_alarms'])} сусідніх районах (у цьому районі чисто)"
             else:
-                is_alert = live.get("is_alert", False)
-                status_str = f"ТРИВОГА В ОБЛАСТІ ({live.get('alert_level', 'ACTIVE')})" if is_alert else "ВІДБІЙ (спокійно, сирени не лунають)"
+                status_str = "🟢 ВІДБІЙ (спокійно, сирени не лунають)"
 
             active_threats = []
             for t_k, t_info in res.get("threats", {}).items():
                 if isinstance(t_info, dict) and t_info.get("active"):
                     active_threats.append(t_info.get("scale_title") or t_k)
 
+            # Local drone certainty
+            drone_report = ""
+            conf_cnt = res.get("local_confirmed_count", 0)
+            prob_cnt = res.get("local_probable_count", 0)
+            if conf_cnt > 0 or prob_cnt > 0:
+                drone_report = f"- БпЛА в зоні району: 🔴 {conf_cnt} підтверджено радарами, 🟡 {prob_cnt} ймовірних / дорозвідка\n"
+
             return (
                 f"Аналітичний прогноз для {res['region_name']} (Район: {res.get('raion_name', 'вся область')}):\n"
                 f"- Поточний стан: {status_str}\n"
+                f"{drone_report}"
                 f"- Зафіксовані загрози: {', '.join(active_threats) if active_threats else 'не зафіксовано'}\n"
                 f"- Ймовірність небезпеки на горизонті {horizon}: {res['overall_probability']*100:.1f}%\n"
                 f"- Пояснення: {res['prob_explanation']}"
@@ -189,23 +228,49 @@ class AirRaidAIAgent:
 
     @staticmethod
     def get_radar_drones_status() -> str:
-        """Опитує радіолокаційні системи Neptun та Dimap про місцезнаходження, кількість та напрямок руху ворожих ударних БпЛА (Шахедів) у повітряному просторі України."""
+        """Опитує радіолокаційні системи Neptun та Dimap про місцезнаходження, кількість та класифікацію ворожих БпЛА (підтверджені радарами vs ймовірні / дорозвідка)."""
         try:
             from src.ingestion.neptun_client import NeptunClient
 
             nep = NeptunClient()
             threats = nep.get_threats()
+            classified = nep.classify_drones(threats)
 
-            uav_threats = [t for t in threats if t.get("type") in ["uav", "shahed", "drone", "fpv"]]
-            if not uav_threats:
+            total = classified["total_count"]
+            conf_cnt = classified["confirmed_count"]
+            prob_cnt = classified["probable_count"]
+            confirmed_list = classified["confirmed_threats"]
+            probable_list = classified["probable_threats"]
+
+            if total == 0 and not threats:
                 return "Радари Neptun у даний момент не фіксують активних БпЛА у повітряному просторі України."
 
-            report = [f"Радари Neptun фіксують {len(uav_threats)} активних повітряних цілей (БпЛА):"]
-            for idx, t in enumerate(uav_threats[:8], 1):
-                heading = t.get("heading")
-                h_str = f", курс {int(heading)}°" if heading is not None else ""
-                loc = t.get("region") or t.get("district") or t.get("locality") or "повітряний простір України"
-                report.append(f"{idx}. {t.get('title', 'БпЛА')} — {loc}{h_str} (статус: {t.get('status', 'активна')})")
+            report = [
+                f"Радари Neptun фіксують у повітряному просторі України {total} БпЛА:",
+                f"• 🔴 Підтверджені радарами: {conf_cnt} од.",
+                f"• 🟡 Ймовірні / розрахункові (дорозвідка/акустично): {prob_cnt} од.",
+                "",
+                "Деталі по підтверджених цілях:",
+            ]
+
+            if confirmed_list:
+                for idx, t in enumerate(confirmed_list[:5], 1):
+                    heading = t.get("heading")
+                    h_str = f", курс {int(heading)}°" if heading is not None else ""
+                    loc = t.get("region") or t.get("district") or t.get("locality") or "повітряний простір України"
+                    cnt = t.get("count", 1) or 1
+                    report.append(f"{idx}. 🔴 {t.get('title', 'БпЛА')} (x{cnt}) — {loc}{h_str} (джерел: {t.get('sourceCount', 1)})")
+            else:
+                report.append("  (немає цілей з високим підтвердженням)")
+
+            if probable_list:
+                report.append("")
+                report.append("Ймовірні цілі (дорозвідка / акустичні звіти):")
+                for idx, t in enumerate(probable_list[:5], 1):
+                    heading = t.get("heading")
+                    h_str = f", курс {int(heading)}°" if heading is not None else ""
+                    loc = t.get("region") or t.get("district") or t.get("locality") or "повітряний простір України"
+                    report.append(f"{idx}. 🟡 {t.get('title', 'БпЛА')} — {loc}{h_str} (статус: {t.get('positionQuality', 'ймовірна')})")
 
             return "\n".join(report)
         except Exception as e:

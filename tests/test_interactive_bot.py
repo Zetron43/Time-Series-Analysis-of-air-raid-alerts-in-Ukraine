@@ -491,5 +491,134 @@ def test_single_area_affected_parsing():
     assert raions_dict["Вижницький район"]["type"] == "CLEAR"
 
 
+def test_neptun_drone_classification_confirmed_vs_probable():
+    """Verifies that NeptunClient accurately separates confirmed vs probable drones."""
+    from src.ingestion.neptun_client import NeptunClient
+
+    client = NeptunClient()
+
+    # Confirmed target 1: high confidence, 3 sources, confirmed lifecycle
+    t_conf1 = {
+        "id": "t1",
+        "type": "uav",
+        "confidenceLevel": "high",
+        "sourceCount": 3,
+        "count": 2,
+        "lifecycle": "confirmed",
+        "positionQuality": "confirmed",
+        "presumptiveCourse": False,
+    }
+
+    # Confirmed target 2: high confidence, 2 sources, not presumptive
+    t_conf2 = {
+        "id": "t2",
+        "type": "uav",
+        "confidenceLevel": "high",
+        "sourceCount": 2,
+        "count": 1,
+        "positionQuality": "radar",
+        "presumptiveCourse": False,
+    }
+
+    # Probable target 1: presumptive course is True
+    t_prob1 = {
+        "id": "t3",
+        "type": "uav",
+        "confidenceLevel": "medium",
+        "sourceCount": 4,
+        "count": 1,
+        "presumptiveCourse": True,
+        "positionQuality": "approx",
+    }
+
+    # Probable target 2: single source / acoustic
+    t_prob2 = {
+        "id": "t4",
+        "type": "uav",
+        "confidenceLevel": "low",
+        "sourceCount": 1,
+        "count": 1,
+        "positionQuality": "estimated",
+    }
+
+    assert client.is_threat_confirmed(t_conf1) is True
+    assert client.is_threat_confirmed(t_conf2) is True
+    assert client.is_threat_confirmed(t_prob1) is False
+    assert client.is_threat_confirmed(t_prob2) is False
+
+    classified = client.classify_drones([t_conf1, t_conf2, t_prob1, t_prob2])
+    assert classified["confirmed_count"] == 3  # 2 + 1
+    assert classified["probable_count"] == 2   # 1 + 1
+    assert classified["total_count"] == 5
+    assert len(classified["confirmed_threats"]) == 2
+    assert len(classified["probable_threats"]) == 2
+    assert classified["confirmed_threats"][0]["certainty"] == "confirmed"
+    assert classified["probable_threats"][0]["certainty"] == "probable"
+
+
+def test_get_all_raions_live_status_independence():
+    """Verifies that get_all_raions_live_status isolates alerts per raion across Ukraine."""
+    from src.ingestion.alerts_live_client import AlertsInUaLiveClient
+
+    client = AlertsInUaLiveClient()
+    mock_sitrep = """
+## 3. CURRENT WARNING STATUS
+**Chernivetska oblast (Чернівецька область)** — air raid alert in effect since 14:33, ongoing for 30 min. 1 area affected: Dnistrovskyi (Дністровський) [yellow (drone level)].
+**Mykolaivska oblast (Миколаївська область)** — air raid alert in effect since 17:47, ongoing for 1 h. 1 area affected: Mykolaivskyi (Миколаївський) [red (missile / mass-strike level)].
+## 4. THREAT ACTIVITY
+- None
+"""
+    client.fetch_live_sitrep = lambda force_refresh=False: mock_sitrep
+
+    all_raions = client.get_all_raions_live_status()
+
+    # Dnistrovskyi is YELLOW, Chernivetskyi and Vyzhnytskyi are CLEAR
+    assert all_raions["Дністровський район"]["active"] is True
+    assert all_raions["Дністровський район"]["level"] == "YELLOW"
+    assert all_raions["Чернівецький район"]["active"] is False
+    assert all_raions["Чернівецький район"]["level"] == "CLEAR"
+    assert all_raions["Вижницький район"]["active"] is False
+    assert all_raions["Вижницький район"]["level"] == "CLEAR"
+
+    # Mykolaivskyi is RED, others in Mykolaiv oblast are CLEAR
+    assert all_raions["Миколаївський район"]["active"] is True
+    assert all_raions["Миколаївський район"]["level"] == "RED"
+    assert all_raions["Баштанський район"]["active"] is False
+    assert all_raions["Баштанський район"]["level"] == "CLEAR"
+    assert all_raions["Вознесенський район"]["active"] is False
+    assert all_raions["Вознесенський район"]["level"] == "CLEAR"
+
+
+def test_get_raions_keyboard_with_status_badges():
+    """Verifies that get_raions_keyboard includes status emoji on raion buttons."""
+    from src.bot.interactive_bot import get_raions_keyboard
+
+    mock_status = {
+        "Дністровський район": {"badge": "🟡", "active": True},
+        "Чернівецький район": {"badge": "🟢", "active": False},
+        "Вижницький район": {"badge": "🟢", "active": False},
+    }
+
+    kb = get_raions_keyboard("chernivtsi", raions_status_map=mock_status)
+    buttons = [btn["text"] for row in kb["inline_keyboard"] for btn in row]
+
+    assert any("🟡 Дністровський" in b for b in buttons)
+    assert any("🟢 Чернівецький" in b for b in buttons)
+    assert any("🟢 Вижницький" in b for b in buttons)
+
+
+def test_alert_map_renderer_with_classified_drones():
+    """Verifies that AlertMapRenderer renders tactical maps with confirmed and probable drones."""
+    from rendering.alert_map_renderer import AlertMapRenderer
+
+    renderer = AlertMapRenderer()
+    img_bytes = renderer.render_map(horizon_minutes=30, highlight_raion="Дністровський район")
+
+    assert isinstance(img_bytes, bytes)
+    assert len(img_bytes) > 20000  # PNG image byte size
+    assert img_bytes[:8] == b"\x89PNG\r\n\x1a\n"  # PNG magic header
+
+
+
 
 
