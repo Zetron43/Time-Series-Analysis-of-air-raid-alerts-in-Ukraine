@@ -126,6 +126,30 @@ class UserSubscriptionManager:
             self._subscriptions[cid]["last_notifications"][note_id] = datetime.now(KYIV_TZ).isoformat()
             self._save()
 
+    def set_alert_state(self, chat_id: int | str, raion_name: str, state: str):
+        """Sets the last known active alert state for (chat_id, raion_name)."""
+        cid = str(chat_id)
+        if cid in self._subscriptions:
+            if "alert_states" not in self._subscriptions[cid]:
+                self._subscriptions[cid]["alert_states"] = {}
+            self._subscriptions[cid]["alert_states"][raion_name] = state
+            self._save()
+
+    def get_alert_state(self, chat_id: int | str, raion_name: str) -> str:
+        """Returns the last alert state ('OFFICIAL', 'WARNING', 'NEIGHBOR', 'CLEAR')."""
+        cid = str(chat_id)
+        user_data = self._subscriptions.get(cid, {})
+        return user_data.get("alert_states", {}).get(raion_name, "CLEAR")
+
+    def had_active_alert(self, chat_id: int | str, raion_name: str) -> bool:
+        """Checks if there was an active official alarm or warning previously recorded."""
+        state = self.get_alert_state(chat_id, raion_name)
+        return state in ["OFFICIAL", "WARNING", "NEIGHBOR"]
+
+    def clear_alert_state(self, chat_id: int | str, raion_name: str):
+        """Clears the active alert state back to CLEAR."""
+        self.set_alert_state(chat_id, raion_name, "CLEAR")
+
 
 class AutoDeleteManager:
     """Manages scheduled automatic deletion of raion alarm messages after 1 hour (3600s)."""

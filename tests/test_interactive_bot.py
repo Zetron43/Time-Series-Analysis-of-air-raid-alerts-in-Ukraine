@@ -361,5 +361,107 @@ def test_auto_delete_manager(tmp_path):
     assert remaining[0]["message_id"] == 888
 
 
+def test_raion_official_alarm_vs_early_warning():
+    """Verifies that official sirens vs radar early warnings are formatted distinctly."""
+    from src.bot.interactive_bot import format_interactive_forecast_response, format_raion_selection_overview
+    from datetime import datetime, timezone, timedelta
+
+    kyiv_now = datetime.now(timezone(timedelta(hours=3)))
+
+    # Case 1: Official Siren Active in Raion
+    data_official = {
+        "region_name": "Чернівецька область",
+        "raion_name": "Чернівецький район",
+        "horizon_label": "15 хв",
+        "overall_probability": 0.65,
+        "current_kyiv_time": kyiv_now,
+        "target_kyiv_time": kyiv_now + timedelta(minutes=15),
+        "live_status": {"is_alert": True, "alert_level": "YELLOW"},
+        "threats": {
+            "shahed": {"active": True, "desc": "1 дрон"},
+            "ballistics": {"active": False, "desc": "немає"},
+            "mig31": {"active": False, "desc": "немає"},
+            "aviation": {"active": False, "desc": "немає"},
+        },
+        "raion_item": {"name": "Чернівецький район", "status": "Жовтий рівень", "badge": "🟡", "active": True},
+        "is_official_alarm": True,
+        "has_radar_warning": False,
+        "neighbors_alarms": [],
+        "local_drones": [],
+        "prob_explanation": "Активна робота мобільних вогневих груп ППО.",
+    }
+    msg_off = format_interactive_forecast_response(data_official)
+    assert "Офіційна повітряна тривога" in msg_off
+    assert "Ймовірність продовження тривоги в районі" in msg_off
+
+    # Case 2: Early Warning - Radar warning without official siren
+    data_warning = {
+        "region_name": "Чернівецька область",
+        "raion_name": "Чернівецький район",
+        "horizon_label": "15 хв",
+        "overall_probability": 0.58,
+        "current_kyiv_time": kyiv_now,
+        "target_kyiv_time": kyiv_now + timedelta(minutes=15),
+        "live_status": {"is_alert": False, "alert_level": "CLEAR"},
+        "threats": {
+            "shahed": {"active": True, "desc": "1 дрон на підльоті"},
+            "ballistics": {"active": False, "desc": "немає"},
+            "mig31": {"active": False, "desc": "немає"},
+            "aviation": {"active": False, "desc": "немає"},
+        },
+        "raion_item": {"name": "Чернівецький район", "status": "Превентивна загроза", "badge": "🟡", "active": False},
+        "is_official_alarm": False,
+        "has_radar_warning": True,
+        "neighbors_alarms": [],
+        "local_drones": [{"heading": 270, "locality": "на межі району", "sourceCount": 2}],
+        "prob_explanation": "Раннє попередження: поодинокий БпЛА рухається в напрямку району.",
+    }
+    msg_warn = format_interactive_forecast_response(data_warning)
+    assert "Превентивна загроза" in msg_warn
+    assert "НЕ лунають" in msg_warn
+    assert "Ризик оголошення тривоги / підльоту цілей" in msg_warn
+
+
+def test_subscription_manager_alert_states(tmp_path):
+    """Verifies state tracking (OFFICIAL, WARNING, NEIGHBOR, CLEAR) in UserSubscriptionManager."""
+    from src.bot.subscription_manager import UserSubscriptionManager
+    test_file = str(tmp_path / "subs_states.json")
+    mgr = UserSubscriptionManager(file_path=test_file)
+
+    mgr.add_subscription(999, "Чернівецький район")
+    assert mgr.get_alert_state(999, "Чернівецький район") == "CLEAR"
+    assert mgr.had_active_alert(999, "Чернівецький район") is False
+
+    mgr.set_alert_state(999, "Чернівецький район", "WARNING")
+    assert mgr.get_alert_state(999, "Чернівецький район") == "WARNING"
+    assert mgr.had_active_alert(999, "Чернівецький район") is True
+
+    mgr.clear_alert_state(999, "Чернівецький район")
+    assert mgr.get_alert_state(999, "Чернівецький район") == "CLEAR"
+    assert mgr.had_active_alert(999, "Чернівецький район") is False
+
+
+def test_compute_dynamic_probability_early_warning():
+    """Verifies that compute_dynamic_operational_probability generates early warning explanations."""
+    from src.bot.interactive_bot import compute_dynamic_operational_probability
+
+    live_status = {"is_alert": False, "alert_level": "CLEAR"}
+    threats_single = {"shahed": {"active": True, "scale_type": "single"}}
+
+    prob, expl = compute_dynamic_operational_probability(
+        region_code="chernivtsi",
+        horizon_minutes=15,
+        live_status=live_status,
+        threats=threats_single,
+        raion_name="Чернівецький район",
+        is_official_alarm=False,
+        is_radar_warning=True,
+    )
+
+    assert 0.50 <= prob <= 0.70
+    assert "Раннє попередження" in expl
+    assert "НЕ лунають" in expl
+
+
 
 

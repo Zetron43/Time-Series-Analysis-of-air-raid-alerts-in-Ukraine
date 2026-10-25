@@ -439,6 +439,8 @@ def compute_dynamic_operational_probability(
     raion_name: Optional[str] = None,
     raion_status: Optional[str] = None,
     neighbors_alarms_count: int = 0,
+    is_official_alarm: bool = False,
+    is_radar_warning: bool = False,
 ) -> Tuple[float, str]:
     """Calculates realistic survival/arrival probability based on threat type, region geometry, raion locality, and drone scale."""
     west_regions = {"lviv", "volyn", "rivne", "ternopil", "ivano_frankivsk", "khmelnytskyi", "zakarpattia", "chernivtsi"}
@@ -453,23 +455,83 @@ def compute_dynamic_operational_probability(
     ballistic_active = threats.get("ballistics", {}).get("active", False)
     mig31_active = threats.get("mig31", {}).get("active", False)
 
-    if raion_status:
-        is_alert = raion_status in ["RED", "YELLOW", "NOMINAL", "ARTILLERY"]
-        alert_level = raion_status
-    else:
-        is_alert = live_status.get("is_alert", False)
-        alert_level = live_status.get("alert_level", "YELLOW")
-
-    # If raion itself is clear but has neighbors with active alarms:
-    if not is_alert and neighbors_alarms_count > 0:
-        if neighbors_alarms_count >= 3:
-            prob_curve = {15: 0.75, 30: 0.85, 60: 0.80, 120: 0.65}
-            expl = f"🚨 Район оточений {neighbors_alarms_count} сусідніми районами з активною тривогою! Дуже високий ризик поширення тривоги."
+    # Specific raion evaluation
+    if raion_name:
+        # Case A: Official Air Raid Siren actively sounding in this raion
+        if is_official_alarm:
+            is_alert = True
+            alert_level = raion_status if raion_status in ["RED", "YELLOW", "NOMINAL", "ARTILLERY"] else "YELLOW"
+        # Case B: Early Warning - Radar threat or approaching UAVs without official siren
+        elif is_radar_warning:
+            if scale_type == "single" or drone_active:
+                if is_west:
+                    prob_curve = {15: 0.58, 30: 0.42, 60: 0.20, 120: 0.08}
+                elif is_border:
+                    prob_curve = {15: 0.70, 30: 0.55, 60: 0.35, 120: 0.20}
+                else:
+                    prob_curve = {15: 0.65, 30: 0.48, 60: 0.25, 120: 0.12}
+                prob = prob_curve.get(horizon_minutes, 0.30)
+                expl = (
+                    "⚠️ Раннє попередження: зафіксовано рух поодинокого БпЛА (1 дрон) курсом на ваш район/область. "
+                    "Сирени в районі ще НЕ лунають, проте є ризик оголошення тривоги у разі входу дрона в зону району."
+                )
+                return prob, expl
+            elif scale_type == "group":
+                if is_west:
+                    prob_curve = {15: 0.85, 30: 0.80, 60: 0.60, 120: 0.35}
+                elif is_border:
+                    prob_curve = {15: 0.92, 30: 0.85, 60: 0.75, 120: 0.55}
+                else:
+                    prob_curve = {15: 0.88, 30: 0.82, 60: 0.68, 120: 0.45}
+                prob = prob_curve.get(horizon_minutes, 0.65)
+                expl = (
+                    "🚨 Раннє попередження: зафіксовано групу ударних БпЛА курсом на ваш район/область! "
+                    "Сирени наразі не увімкнено, підвищена загроза оголошення тривоги."
+                )
+                return prob, expl
+            elif ballistic_active:
+                prob = 0.70
+                expl = "🚀 Раннє попередження: зафіксовано загрозу балістики у напрямку регіону. Можливе термінове увімкнення сирен!"
+                return prob, expl
+            else:
+                prob_curve = {15: 0.45, 30: 0.35, 60: 0.20, 120: 0.10}
+                prob = prob_curve.get(horizon_minutes, 0.30)
+                expl = "⚠️ Раннє попередження: радари фіксують тактичну небезпеку. Сирени ще не ввімкнено, зберігайте пильність."
+                return prob, expl
+        # Case C: Alarm in neighboring raions
+        elif neighbors_alarms_count > 0:
+            if neighbors_alarms_count >= 3:
+                prob_curve = {15: 0.75, 30: 0.85, 60: 0.80, 120: 0.65}
+                expl = f"🚨 Раннє попередження: район оточений {neighbors_alarms_count} сусідніми районами з активною тривогою! Сирени у вашому районі ще не лунають, але є дуже високий ризик поширення тривоги."
+            else:
+                prob_curve = {15: 0.45, 30: 0.58, 60: 0.65, 120: 0.50}
+                expl = f"⚠️ Раннє попередження: у {neighbors_alarms_count} сусідніх районах оголошено тривогу! Сирени у вашому районі наразі не лунають, але є підвищений ризик поширення загрози."
+            prob = prob_curve.get(horizon_minutes, 0.50)
+            return prob, expl
+        # Case D: Clear
         else:
-            prob_curve = {15: 0.45, 30: 0.58, 60: 0.65, 120: 0.50}
-            expl = f"⚠️ У {neighbors_alarms_count} сусідніх районах оголошено тривогу! Підвищена готовність та висока ймовірність сирени."
-        prob = prob_curve.get(horizon_minutes, 0.50)
-        return prob, expl
+            prob = 0.04 if is_west else (0.10 if is_border else 0.06)
+            expl = "🟢 Спокійно: у вашому районі тривоги немає, за даними радарів загрози не виявлено."
+            return prob, expl
+    else:
+        # Oblast-level evaluation
+        if raion_status:
+            is_alert = raion_status in ["RED", "YELLOW", "NOMINAL", "ARTILLERY"]
+            alert_level = raion_status
+        else:
+            is_alert = live_status.get("is_alert", False)
+            alert_level = live_status.get("alert_level", "YELLOW")
+
+        # If oblast itself is clear but has neighbors with active alarms:
+        if not is_alert and neighbors_alarms_count > 0:
+            if neighbors_alarms_count >= 3:
+                prob_curve = {15: 0.75, 30: 0.85, 60: 0.80, 120: 0.65}
+                expl = f"🚨 Регіон оточений {neighbors_alarms_count} сусідніми областями з активною тривогою! Дуже високий ризик поширення тривоги."
+            else:
+                prob_curve = {15: 0.45, 30: 0.58, 60: 0.65, 120: 0.50}
+                expl = f"⚠️ У {neighbors_alarms_count} сусідніх областях оголошено тривогу! Підвищена готовність та висока ймовірність сирени."
+            prob = prob_curve.get(horizon_minutes, 0.50)
+            return prob, expl
 
     # 1. Active Alert: Probability that alert is STILL CONTINUING at horizon t + horizon_minutes
     if is_alert:
@@ -674,27 +736,56 @@ class ThreatAnalyzer:
         raion_item = None
         neighbors_alarms = []
         local_uavs = []
+        is_official_alarm = False
+        has_radar_warning = False
 
         if raion_name:
             for r in live_status.get("raions", []):
                 if r["name"].lower() == raion_name.lower():
-                    raion_item = r
+                    raion_item = dict(r)
                     raion_status_val = r.get("type", "CLEAR")
                     break
 
+            is_official_alarm = bool(
+                raion_item
+                and raion_item.get("active", False)
+                and raion_item.get("type") in ["RED", "YELLOW", "NOMINAL", "ARTILLERY"]
+            )
+
             # Neptun raion threat summary
+            radar_level = "CLEAR"
             try:
                 nep_summary = self.neptun_client.get_raion_threat_summary(raion_name)
                 local_uavs = nep_summary.get("local_drones", [])
-                if nep_summary.get("has_neptun_alert") and raion_status_val in ["CLEAR", "CLEAR_RECENT", None]:
-                    raion_status_val = nep_summary.get("neptun_level", "YELLOW").upper()
-                    if raion_item:
-                        raion_item["status"] = f"{raion_status_val} рівень (Neptun Radar)"
-                        raion_item["badge"] = "🔴" if raion_status_val == "RED" else "🟡"
-                        raion_item["type"] = raion_status_val
-                        raion_item["active"] = True
+                if nep_summary.get("has_neptun_alert"):
+                    radar_level = nep_summary.get("neptun_level", "YELLOW").upper()
+                    has_radar_warning = True
+                elif local_uavs:
+                    radar_level = "YELLOW"
+                    has_radar_warning = True
             except Exception:
                 pass
+
+            if raion_item:
+                if is_official_alarm:
+                    raion_item["is_official"] = True
+                    raion_item["is_warning"] = False
+                    raion_item["active"] = True
+                    raion_item["warning_active"] = False
+                elif has_radar_warning:
+                    raion_item["is_official"] = False
+                    raion_item["is_warning"] = True
+                    raion_item["type"] = radar_level
+                    raion_item["status"] = f"⚠️ Попередження: {radar_level} рівень за радарами Neptun (сирени ще не лунають)"
+                    raion_item["badge"] = "🔴" if radar_level == "RED" else "🟡"
+                    raion_item["active"] = False
+                    raion_item["warning_active"] = True
+                    raion_status_val = radar_level
+                else:
+                    raion_item["is_official"] = False
+                    raion_item["is_warning"] = False
+                    raion_item["active"] = False
+                    raion_item["warning_active"] = False
 
             # Neighboring raions alarm check
             neighbors = self.neighbors_map.get(raion_name, [])
@@ -725,6 +816,8 @@ class ThreatAnalyzer:
             raion_name=raion_name,
             raion_status=raion_status_val,
             neighbors_alarms_count=len(neighbors_alarms),
+            is_official_alarm=is_official_alarm,
+            is_radar_warning=has_radar_warning,
         )
 
         return {
@@ -732,6 +825,8 @@ class ThreatAnalyzer:
             "region_name": region_name,
             "raion_name": raion_name,
             "raion_item": raion_item,
+            "is_official_alarm": is_official_alarm,
+            "has_radar_warning": has_radar_warning,
             "neighbors_alarms": neighbors_alarms,
             "local_drones": local_uavs,
             "horizon_label": horizon_info["label"],
@@ -778,6 +873,8 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
         r_badge = raion_item.get("badge", "🟢")
         r_status = raion_item.get("status", "Спокійно (без тривоги)")
         r_active = raion_item.get("active", False)
+        is_official = data.get("is_official_alarm", False)
+        is_warning = data.get("has_radar_warning", False)
 
         lines = [
             "🎯 <b>ОПЕРАТИВНИЙ ПРОГНОЗ ПО РАЙОНУ</b>",
@@ -787,8 +884,13 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
             "",
             "━━━━━━━━━━━━━━━━━━━━━━",
             "📡 <b>ПОТОЧНИЙ СТАН ВАШОГО РАЙОНУ:</b>",
-            f"{r_badge} <b>{raion_name}:</b> {r_status}",
         ]
+        if is_official:
+            lines.append(f"🚨 <b>{raion_name}:</b> 🔴 <b>Офіційна повітряна тривога (сирени активні)</b>")
+        elif is_warning:
+            lines.append(f"⚠️ <b>{raion_name}:</b> 🟡 <b>Превентивна загроза</b> (сирени в районі ще <u>НЕ лунають</u>)")
+        else:
+            lines.append(f"🟢 <b>{raion_name}:</b> Спокійно (без тривоги)")
 
         if neighbors_alarms:
             lines.extend([
@@ -815,10 +917,17 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
                 loc = d.get("locality") or d.get("district") or "в межах району"
                 lines.append(f"• 🚨 <b>Ціль:</b> {loc}{h_str} (джерел: {d.get('sourceCount', 1)})")
 
+        if is_official:
+            prob_title = "Ймовірність продовження тривоги в районі"
+        elif is_warning:
+            prob_title = "Ризик оголошення тривоги / підльоту цілей"
+        else:
+            prob_title = "Ймовірність виникнення тривоги в районі"
+
         lines.extend([
             "",
             "━━━━━━━━━━━━━━━━━━━━━━",
-            f"📊 <b>Ймовірність {'дії/тривання' if r_active else 'виникнення'} тривоги в районі:</b> <b>{prob * 100:.1f}%</b>",
+            f"📊 <b>{prob_title}:</b> <b>{prob * 100:.1f}%</b>",
             f"Оцінка ризику: {badge} {progress}",
         ])
         if data.get("prob_explanation"):
@@ -937,6 +1046,8 @@ def format_raion_selection_overview(region_code: str, raion_name: str) -> str:
     r_item = res.get("raion_item") or {}
     r_badge = r_item.get("badge", "🟢")
     r_status = r_item.get("status", "Спокійно (без тривоги)")
+    is_official = res.get("is_official_alarm", False)
+    is_warn = res.get("has_radar_warning", False)
     nb_alarms = res.get("neighbors_alarms", [])
     local_drones = res.get("local_drones", [])
 
@@ -947,8 +1058,13 @@ def format_raion_selection_overview(region_code: str, raion_name: str) -> str:
         "",
         "━━━━━━━━━━━━━━━━━━━━━━",
         f"📡 <b>ПОТОЧНИЙ СТАН РАЙОНУ:</b>",
-        f"{r_badge} <b>{raion_name}:</b> {r_status}",
     ]
+    if is_official:
+        lines.append(f"{r_badge} <b>{raion_name}:</b> 🔴 <b>Офіційна повітряна тривога</b> ({r_status})")
+    elif is_warn:
+        lines.append(f"⚠️ <b>{raion_name}:</b> 🟡 <b>Превентивна загроза</b> (сирени в районі ще <u>не лунають</u>)")
+    else:
+        lines.append(f"🟢 <b>{raion_name}:</b> Спокійно (сирени не лунають)")
 
     if nb_alarms:
         lines.extend([
@@ -1436,7 +1552,8 @@ def run_subscriptions_watcher(
                 res = analyzer.analyze_threats_for_region(reg_code, "15m", raion_name=raion_name)
 
                 raion_item = res.get("raion_item") or {}
-                raion_active = raion_item.get("active", False)
+                is_official = res.get("is_official_alarm", False)
+                is_warning = res.get("has_radar_warning", False)
                 raion_level = raion_item.get("type", "CLEAR")
                 nb_alarms = res.get("neighbors_alarms", [])
                 local_drones = res.get("local_drones", [])
@@ -1448,19 +1565,20 @@ def run_subscriptions_watcher(
 
                     now_str = datetime.now(KYIV_TZ).strftime("%H:%M:%S")
 
-                    # Scenario A: Direct Alarm in Raion
-                    if raion_active and raion_level in ["RED", "YELLOW"]:
-                        event_key = f"alarm_{raion_level}"
+                    # Scenario 1: Official Siren Active in Raion (Офіційна повітряна тривога)
+                    if is_official and raion_level in ["RED", "YELLOW", "NOMINAL", "ARTILLERY"]:
+                        event_key = f"official_alarm_{raion_level}"
                         if sub_manager.should_notify(cid, raion_name, event_key, cooldown_minutes=35):
-                            lvl_badge = "🔴 КРИТИЧНИЙ" if raion_level == "RED" else "🟡 ПІДВИЩЕНИЙ (БпЛА)"
+                            lvl_badge = "🔴 КРИТИЧНИЙ (Ракетна небезпека)" if raion_level == "RED" else "🟡 ПІДВИЩЕНИЙ (БпЛА)"
                             alert_msg = (
                                 f"🚨 <b>ТРИВОГА У ВАШОМУ РАЙОНІ!</b>\n\n"
                                 f"📍 <b>Район:</b> {raion_name} ({res['region_name']})\n"
                                 f"🕒 <b>Час фіксації:</b> {now_str}\n"
+                                f"📢 <b>Статус:</b> 🔴 <b>Офіційна повітряна тривога (сирени активні)</b>\n"
                                 f"⚠️ <b>Рівень небезпеки:</b> {lvl_badge}\n\n"
-                                f"📊 <b>Ймовірність продовження:</b> {res['overall_probability']*100:.1f}%\n"
+                                f"📊 <b>Ймовірність тривання (на 15 хв):</b> {res['overall_probability']*100:.1f}%\n"
                                 f"💡 <i>{res['prob_explanation']}</i>\n\n"
-                                f"🛡 <i>Негайно прямуйте до безпечного укриття!</i>\n\n"
+                                f"🛡 <b>Негайно прямуйте до безпечного укриття!</b>\n\n"
                                 f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
                             )
                             # Remove older alarm for this raion in chat before sending fresh
@@ -1479,9 +1597,52 @@ def run_subscriptions_watcher(
                             if send_res.get("ok"):
                                 sent_mid = send_res["result"]["message_id"]
                                 delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
+                            sub_manager.set_alert_state(cid, raion_name, "OFFICIAL")
                             sub_manager.mark_notified(cid, raion_name, event_key)
 
-                    # Scenario B: Early Warning - Alarm in Neighboring Raions
+                    # Scenario 2: Radar Threat / Approaching UAVs without Siren (Раннє попередження)
+                    elif is_warning or local_drones:
+                        w_lvl = raion_level if raion_level in ["RED", "YELLOW"] else "YELLOW"
+                        event_key = f"radar_warning_{w_lvl}_{len(local_drones)}"
+                        if sub_manager.should_notify(cid, raion_name, event_key, cooldown_minutes=25):
+                            lvl_badge = "🔴 ВИСОКИЙ" if w_lvl == "RED" else "🟡 ПІДВИЩЕНИЙ (БпЛА)"
+                            drone_info_str = ""
+                            if local_drones:
+                                d_info = local_drones[0]
+                                heading = d_info.get("heading")
+                                h_str = f" з курсом {int(heading)}°" if heading is not None else ""
+                                drone_info_str = f"\n🛸 <b>Радари Neptun:</b> зафіксовано {len(local_drones)} ціль(ей){h_str} у напрямку району."
+
+                            warn_msg = (
+                                f"⚠️ <b>РАННЄ ПОПЕРЕДЖЕННЯ: ЗАГРОЗА ДЛЯ ВАШОГО РАЙОНУ!</b>\n\n"
+                                f"📍 <b>Район:</b> {raion_name} ({res['region_name']})\n"
+                                f"🕒 <b>Час фіксації:</b> {now_str}\n"
+                                f"📡 <b>Статус:</b> 🟡 <b>Превентивна загроза</b> (сирени в районі ще <u>НЕ лунають</u>!)\n"
+                                f"⚠️ <b>Рівень небезпеки:</b> {lvl_badge}{drone_info_str}\n\n"
+                                f"📊 <b>Ризик оголошення тривоги / підльоту:</b> <b>{res['overall_probability']*100:.1f}%</b>\n"
+                                f"💡 <i>{res['prob_explanation']}</i>\n\n"
+                                f"⚠️ <i>Будьте напоготові, слідкуйте за офіційними сигналами та перевірте найближче укриття!</i>\n\n"
+                                f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
+                            )
+                            old_mids = delete_mgr.pop_previous_raion_alerts(cid, raion_name)
+                            for om in old_mids:
+                                try:
+                                    telegram_api_call(token, "deleteMessage", {"chat_id": cid, "message_id": om})
+                                except Exception:
+                                    pass
+
+                            send_res = telegram_api_call(token, "sendMessage", {
+                                "chat_id": cid,
+                                "text": warn_msg,
+                                "parse_mode": "HTML",
+                            })
+                            if send_res.get("ok"):
+                                sent_mid = send_res["result"]["message_id"]
+                                delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
+                            sub_manager.set_alert_state(cid, raion_name, "WARNING")
+                            sub_manager.mark_notified(cid, raion_name, event_key)
+
+                    # Scenario 3: Early Warning - Alarm in Neighboring Raions (Тривога в сусідніх районах)
                     elif nb_alarms:
                         nb_count = len(nb_alarms)
                         event_key = f"neighbor_alert_{nb_count}"
@@ -1490,8 +1651,8 @@ def run_subscriptions_watcher(
                             warn_msg = (
                                 f"⚠️ <b>РАННЄ ПОПЕРЕДЖЕННЯ: ТРИВОГА В СУСІДНІХ РАЙОНАХ!</b>\n\n"
                                 f"📍 <b>Ваш район:</b> {raion_name} ({res['region_name']})\n"
-                                f"🕒 <b>Час:</b> {now_str}\n\n"
-                                f"Оголошено тривогу поруч з вашим кордоном ({nb_count} районів):\n"
+                                f"🕒 <b>Час:</b> {now_str}\n"
+                                f"📡 <b>Статус:</b> 🟢 <b>У вашому районі сирени не лунають</b>, але тривогу оголошено поруч ({nb_count} районів):\n"
                                 f"{nb_list_str}\n\n"
                                 f"📊 <b>Ризик поширення тривоги на ваш район:</b> <b>{res['overall_probability']*100:.1f}%</b>\n"
                                 f"💡 <i>{res['prob_explanation']}</i>\n\n"
@@ -1513,40 +1674,38 @@ def run_subscriptions_watcher(
                             if send_res.get("ok"):
                                 sent_mid = send_res["result"]["message_id"]
                                 delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
+                            sub_manager.set_alert_state(cid, raion_name, "NEIGHBOR")
                             sub_manager.mark_notified(cid, raion_name, event_key)
 
-                    # Scenario C: Incoming UAVs detected by radar
-                    elif local_drones:
-                        event_key = f"uav_incoming_{len(local_drones)}"
-                        if sub_manager.should_notify(cid, raion_name, event_key, cooldown_minutes=25):
-                            d_info = local_drones[0]
-                            heading = d_info.get("heading")
-                            h_str = f" з курсом {int(heading)}°" if heading is not None else ""
-                            uav_msg = (
-                                f"🛸 <b>УВАГА: НАБЛИЖЕННЯ УДАРНИХ БпЛА!</b>\n\n"
-                                f"📍 <b>Ваш район:</b> {raion_name} ({res['region_name']})\n"
-                                f"🕒 <b>Час:</b> {now_str}\n\n"
-                                f"Радари Neptun фіксують {len(local_drones)} ціль(ей){h_str} у напрямку вашого району!\n"
-                                f"📊 <b>Оцінка загрози:</b> {res['overall_probability']*100:.1f}%\n\n"
-                                f"🛡 <i>Подбайте про власну безпеку!</i>\n\n"
-                                f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
-                            )
-                            old_mids = delete_mgr.pop_previous_raion_alerts(cid, raion_name)
-                            for om in old_mids:
-                                try:
-                                    telegram_api_call(token, "deleteMessage", {"chat_id": cid, "message_id": om})
-                                except Exception:
-                                    pass
+                    # Scenario 4: All Clear (Відбій загрози)
+                    elif not is_official and not is_warning and not nb_alarms:
+                        if sub_manager.had_active_alert(cid, raion_name):
+                            event_key = f"all_clear_{datetime.now(KYIV_TZ).strftime('%Y%m%d%H%M')}"
+                            if sub_manager.should_notify(cid, raion_name, event_key, cooldown_minutes=15):
+                                clear_msg = (
+                                    f"🟢 <b>ВІДБІЙ ТРИВОГИ / ЗАГРОЗИ!</b>\n\n"
+                                    f"📍 <b>Район:</b> {raion_name} ({res['region_name']})\n"
+                                    f"🕒 <b>Час:</b> {now_str}\n\n"
+                                    f"У вашому районі наразі спокійно. Загрозу знято, сирени не лунають.\n\n"
+                                    f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
+                                )
+                                old_mids = delete_mgr.pop_previous_raion_alerts(cid, raion_name)
+                                for om in old_mids:
+                                    try:
+                                        telegram_api_call(token, "deleteMessage", {"chat_id": cid, "message_id": om})
+                                    except Exception:
+                                        pass
 
-                            send_res = telegram_api_call(token, "sendMessage", {
-                                "chat_id": cid,
-                                "text": uav_msg,
-                                "parse_mode": "HTML",
-                            })
-                            if send_res.get("ok"):
-                                sent_mid = send_res["result"]["message_id"]
-                                delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
-                            sub_manager.mark_notified(cid, raion_name, event_key)
+                                send_res = telegram_api_call(token, "sendMessage", {
+                                    "chat_id": cid,
+                                    "text": clear_msg,
+                                    "parse_mode": "HTML",
+                                })
+                                if send_res.get("ok"):
+                                    sent_mid = send_res["result"]["message_id"]
+                                    delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=3600, raion_name=raion_name)
+                                sub_manager.clear_alert_state(cid, raion_name)
+                                sub_manager.mark_notified(cid, raion_name, event_key)
 
         except Exception as exc:
             print(f"[-] Subscriptions Watcher Exception: {exc}", flush=True)
