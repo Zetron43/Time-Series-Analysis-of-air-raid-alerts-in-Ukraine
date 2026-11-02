@@ -128,6 +128,19 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                 lon = t.get("lon")
                 if lat is None or lon is None:
                     continue
+                try:
+                    f_lat = float(lat)
+                    f_lon = float(lon)
+                except (ValueError, TypeError):
+                    continue
+
+                # Strict Ukraine sovereign boundary filter:
+                # Discard any noise/telemetry outside Ukrainian borders (e.g. far into Black Sea or Moldova/Romania)
+                if f_lat < 44.38 or f_lat > 52.38 or f_lon < 22.14 or f_lon > 40.22:
+                    continue
+                if f_lon < 28.0 and f_lat < 47.9 and not (f_lon >= 25.0 and f_lat >= 47.9) and not (f_lon >= 28.5 and f_lat <= 45.6):
+                    continue
+
                 is_conf = bool(t.get("is_confirmed") or t.get("lifecycle") == "confirmed")
                 count = int(t.get("count", 1) or 1)
                 heading = t.get("heading")
@@ -144,8 +157,8 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                     color = "#fbbf24"
 
                 drones_clean.append({
-                    "lat": float(lat),
-                    "lon": float(lon),
+                    "lat": f_lat,
+                    "lon": f_lon,
                     "heading": heading,
                     "count": count,
                     "is_confirmed": is_conf,
