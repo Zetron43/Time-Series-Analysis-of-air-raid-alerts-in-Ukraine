@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Жива Тактична Мапа Тривог та БпЛА</title>
+    <title>Вартовий Неба | Тактична Мапа Тривог та БпЛА</title>
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <!-- Leaflet CSS & JS -->
@@ -20,77 +20,84 @@
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #0b0f19;
+            background-color: #060a14;
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #f3f4f6;
+            color: #f1f5f9;
         }
         #map {
             width: 100%;
             height: 100%;
-            background: #0b0f19;
+            background: #060a14;
         }
+
         /* Top HUD Bar */
         .hud-header {
             position: absolute;
             top: 10px;
-            left: 12px;
-            right: 12px;
+            left: 10px;
+            right: 10px;
             z-index: 1000;
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(8px);
-            border: 1px solid rgba(255, 255, 255, 0.1);
+            background: rgba(13, 19, 33, 0.92);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(56, 189, 248, 0.25);
             border-radius: 12px;
             padding: 8px 14px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.65);
         }
         .hud-title {
             font-size: 13px;
-            font-weight: 700;
+            font-weight: 800;
             display: flex;
             align-items: center;
-            gap: 6px;
+            gap: 7px;
             color: #38bdf8;
+            letter-spacing: 0.3px;
         }
         .pulse-dot {
-            width: 8px;
-            height: 8px;
+            width: 9px;
+            height: 9px;
             background-color: #ef4444;
             border-radius: 50%;
-            animation: pulse-ring 1.5s infinite;
+            box-shadow: 0 0 8px #ef4444;
+            animation: pulse-ring 1.3s infinite;
         }
         @keyframes pulse-ring {
-            0% { transform: scale(0.9); opacity: 0.8; }
+            0% { transform: scale(0.9); opacity: 0.9; }
             50% { transform: scale(1.4); opacity: 0.3; }
-            100% { transform: scale(0.9); opacity: 0.8; }
+            100% { transform: scale(0.9); opacity: 0.9; }
         }
         .hud-stats {
             font-size: 11px;
             font-weight: 600;
-            color: #9ca3af;
+            color: #cbd5e1;
+            text-align: right;
+            line-height: 1.3;
         }
         .stat-badge {
-            color: #f87171;
-            font-weight: bold;
+            font-weight: 700;
         }
+        .stat-radar { color: #f87171; }
+        .stat-prob { color: #fbbf24; }
+        .stat-alarms { color: #f43f5e; }
 
-        /* Floating Raion Info Card */
+        /* Floating Raion Detail Card */
         .info-card {
             position: absolute;
-            bottom: 20px;
-            left: 12px;
-            right: 12px;
-            max-width: 440px;
+            bottom: 16px;
+            left: 10px;
+            right: 10px;
+            max-width: 460px;
             margin: 0 auto;
             z-index: 1000;
-            background: rgba(17, 24, 39, 0.94);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(56, 189, 248, 0.25);
+            background: rgba(15, 23, 42, 0.96);
+            backdrop-filter: blur(14px);
+            border: 1px solid rgba(56, 189, 248, 0.35);
             border-radius: 16px;
             padding: 14px 16px;
-            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8);
             display: none;
             transition: all 0.25s ease-out;
         }
@@ -98,7 +105,7 @@
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
         }
         .card-title {
             font-size: 16px;
@@ -108,114 +115,202 @@
         .card-subtitle {
             font-size: 12px;
             color: #94a3b8;
+            font-weight: 500;
         }
         .close-btn {
             background: none;
             border: none;
-            color: #64748b;
-            font-size: 18px;
+            color: #94a3b8;
+            font-size: 20px;
             cursor: pointer;
             padding: 0 4px;
+            line-height: 1;
         }
         .card-status-badge {
             display: inline-block;
             font-size: 12px;
-            font-weight: 700;
-            padding: 4px 10px;
+            font-weight: 800;
+            padding: 5px 12px;
             border-radius: 8px;
-            margin-top: 4px;
-            margin-bottom: 8px;
+            margin: 6px 0 8px 0;
+            letter-spacing: 0.3px;
         }
         .status-red {
-            background: rgba(239, 68, 68, 0.2);
-            color: #ef4444;
+            background: rgba(220, 38, 38, 0.25);
+            color: #f87171;
             border: 1px solid #ef4444;
         }
         .status-yellow {
-            background: rgba(234, 179, 8, 0.2);
-            color: #eab308;
-            border: 1px solid #eab308;
+            background: rgba(217, 119, 6, 0.25);
+            color: #fbbf24;
+            border: 1px solid #f59e0b;
         }
         .status-clear {
-            background: rgba(34, 197, 94, 0.2);
-            color: #22c55e;
-            border: 1px solid #22c55e;
+            background: rgba(16, 185, 129, 0.2);
+            color: #34d399;
+            border: 1px solid #10b981;
         }
         .eta-block {
-            background: rgba(30, 41, 59, 0.6);
+            background: rgba(30, 41, 59, 0.7);
             border-radius: 10px;
-            padding: 8px 12px;
-            margin: 8px 0;
-            font-size: 12px;
-            line-height: 1.4;
+            padding: 9px 12px;
+            margin: 8px 0 12px 0;
+            font-size: 12.5px;
+            line-height: 1.45;
             color: #e2e8f0;
-            border-left: 3px solid #38bdf8;
+            border-left: 3.5px solid #38bdf8;
         }
-        .set-home-btn {
-            width: 100%;
-            background: linear-gradient(135deg, #0284c7, #2563eb);
-            color: white;
+        .card-actions-row {
+            display: flex;
+            gap: 8px;
+            margin-top: 4px;
+        }
+        .action-btn {
+            flex: 1;
+            padding: 10px 0;
             border: none;
             border-radius: 10px;
-            padding: 9px 0;
             font-weight: 700;
-            font-size: 13px;
+            font-size: 12.5px;
             cursor: pointer;
-            margin-top: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
+            transition: transform 0.1s, opacity 0.15s;
         }
-        .set-home-btn:active {
-            transform: scale(0.98);
+        .action-btn:active {
+            transform: scale(0.97);
+        }
+        .btn-chat {
+            background: linear-gradient(135deg, #0284c7, #2563eb);
+            color: #ffffff;
+            box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
+        }
+        .btn-home {
+            background: rgba(51, 65, 85, 0.85);
+            color: #f1f5f9;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+        }
+        .btn-home:hover {
+            background: rgba(71, 85, 105, 0.95);
         }
 
-        /* Leaflet custom overrides */
+        /* Leaflet custom map canvas */
         .leaflet-container {
-            background: #0b0f19 !important;
+            background: #060a14 !important;
         }
-        .custom-drone-icon {
+
+        /* Drone markers matching image */
+        .drone-marker-wrap {
+            position: relative;
             display: flex;
             align-items: center;
-            justify-content: center;
         }
-        .drone-pulsing-marker {
-            width: 16px;
-            height: 16px;
+        .drone-core-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            border: 2px solid #ffffff;
+            z-index: 20;
+        }
+        .radar-core {
             background: #ef4444;
-            border: 2px solid #ffffff;
-            border-radius: 50%;
-            box-shadow: 0 0 12px #ef4444;
-            animation: pulse-ring 1.2s infinite;
+            box-shadow: 0 0 10px #ef4444;
         }
-        .drone-prob-marker {
-            width: 14px;
-            height: 14px;
-            background: #eab308;
-            border: 2px solid #ffffff;
+        .prob-core {
+            background: #f59e0b;
+            box-shadow: 0 0 10px #f59e0b;
+        }
+        .drone-pulse-ring {
+            position: absolute;
+            width: 26px;
+            height: 26px;
+            left: -7px;
+            top: -7px;
             border-radius: 50%;
-            box-shadow: 0 0 10px #eab308;
+            animation: pulse-ring 1.5s infinite;
+            z-index: 10;
+        }
+        .radar-pulse-ring {
+            background: rgba(239, 68, 68, 0.35);
+        }
+        .prob-pulse-ring {
+            background: rgba(245, 158, 11, 0.30);
+        }
+        .drone-text-badge {
+            position: absolute;
+            left: 18px;
+            top: -6px;
+            background: rgba(22, 27, 46, 0.92);
+            color: #ffffff;
+            font-size: 10px;
+            font-weight: 700;
+            padding: 2px 7px;
+            border-radius: 5px;
+            white-space: nowrap;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
+            z-index: 30;
+            pointer-events: none;
+        }
+        .radar-text-badge {
+            border: 1px solid #ef4444;
+            color: #fecaca;
+        }
+        .prob-text-badge {
+            border: 1px solid #f59e0b;
+            color: #fef3c7;
+        }
+        .target-cross-badge {
+            font-size: 11px;
+            font-weight: 800;
+            padding: 2px 5px;
+            border-radius: 4px;
+            background: rgba(22, 27, 46, 0.90);
+            pointer-events: none;
+            white-space: nowrap;
+        }
+        .radar-target-badge {
+            color: #fca5a5;
+            border: 1px solid rgba(244, 63, 94, 0.6);
+        }
+        .prob-target-badge {
+            color: #fde68a;
+            border: 1px solid rgba(251, 191, 36, 0.6);
+        }
+
+        /* Oblast center label */
+        .oblast-map-label {
+            color: #94a3b8;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 0.3px;
+            text-shadow: 0 0 6px #000000, 0 0 3px #000000;
+            pointer-events: none;
+            white-space: nowrap;
+            opacity: 0.85;
         }
     </style>
 </head>
 <body>
 
-    <!-- HUD -->
+    <!-- HUD Header -->
     <div class="hud-header">
         <div class="hud-title">
             <div class="pulse-dot"></div>
             <span>UKRAINE AIR DEFENSE LIVE</span>
         </div>
         <div class="hud-stats" id="hud-stats">
-            Радари: <span class="stat-badge" id="stats-drones">0 БпЛА</span> | Оновлення: <span id="stats-time">...</span>
+            Радари: <span class="stat-badge stat-radar" id="stats-radar">0</span> |
+            Ймов: <span class="stat-badge stat-prob" id="stats-prob">0</span> |
+            Тривог: <span class="stat-badge stat-alarms" id="stats-alarms">0</span>
         </div>
     </div>
 
     <!-- Map container -->
     <div id="map"></div>
 
-    <!-- Info Bottom Card -->
+    <!-- Bottom Detail Card -->
     <div class="info-card" id="info-card">
         <div class="card-header">
             <div>
@@ -228,9 +323,14 @@
         <div class="eta-block" id="card-eta-text">
             🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.
         </div>
-        <button class="set-home-btn" id="btn-set-home" onclick="setAsHomeRaion()">
-            ⭐ Зберегти як «Мій район»
-        </button>
+        <div class="card-actions-row">
+            <button class="action-btn btn-chat" onclick="sendRaionToBot()">
+                💬 Показати в чаті
+            </button>
+            <button class="action-btn btn-home" onclick="setAsHomeRaion()">
+                ⭐ «Мій район»
+            </button>
+        </div>
     </div>
 
     <script>
@@ -247,45 +347,86 @@
             attributionControl: false,
             minZoom: 5,
             maxZoom: 10
-        }).setView([48.5, 31.2], 6);
+        }).setView([48.6, 31.4], 6);
 
         L.control.zoom({ position: 'topright' }).addTo(map);
 
         let geojsonLayer = null;
         let dronesLayer = L.layerGroup().addTo(map);
+        let oblastsLayer = L.layerGroup().addTo(map);
         let selectedRaionName = null;
         let threatsData = null;
 
-        // Styles
+        // 25 Oblast center labels (matching alerts.in.ua)
+        const OBLAST_CENTERS = [
+            { name: "Київська", lat: 50.15, lon: 30.55 },
+            { name: "Чернігівська", lat: 51.35, lon: 31.85 },
+            { name: "Сумська", lat: 50.90, lon: 34.60 },
+            { name: "Харківська", lat: 49.70, lon: 36.80 },
+            { name: "Полтавська", lat: 49.65, lon: 34.00 },
+            { name: "Черкаська", lat: 49.25, lon: 31.80 },
+            { name: "Житомирська", lat: 50.55, lon: 28.60 },
+            { name: "Вінницька", lat: 49.00, lon: 28.50 },
+            { name: "Кіровоградська", lat: 48.50, lon: 32.10 },
+            { name: "Дніпропетровська", lat: 48.45, lon: 35.00 },
+            { name: "Запорізька", lat: 47.45, lon: 36.00 },
+            { name: "Донецька", lat: 48.00, lon: 37.80 },
+            { name: "Луганська", lat: 48.90, lon: 39.00 },
+            { name: "Миколаївська", lat: 47.20, lon: 32.00 },
+            { name: "Одеська", lat: 46.80, lon: 30.20 },
+            { name: "Херсонська", lat: 46.55, lon: 33.30 },
+            { name: "АР Крим", lat: 45.20, lon: 34.20 },
+            { name: "Рівненська", lat: 50.95, lon: 26.50 },
+            { name: "Волинська", lat: 51.15, lon: 24.80 },
+            { name: "Львівська", lat: 49.80, lon: 23.90 },
+            { name: "Тернопільська", lat: 49.50, lon: 25.60 },
+            { name: "Хмельницька", lat: 49.40, lon: 26.90 },
+            { name: "Івано-Франківська", lat: 48.80, lon: 24.70 },
+            { name: "Закарпатська", lat: 48.45, lon: 23.25 },
+            { name: "Чернівецька", lat: 48.30, lon: 25.90 }
+        ];
+
+        function renderOblastLabels() {
+            oblastsLayer.clearLayers();
+            OBLAST_CENTERS.forEach(ob => {
+                const icon = L.divIcon({
+                    className: 'oblast-map-label',
+                    html: `<div>${ob.name}</div>`,
+                    iconSize: [80, 20],
+                    iconAnchor: [40, 10]
+                });
+                oblastsLayer.addLayer(L.marker([ob.lat, ob.lon], { icon: icon, interactive: false }));
+            });
+        }
+        renderOblastLabels();
+
+        // Raion styling (matching Image 1 and Image 2)
         function getRaionStyle(feature) {
             const rName = (feature.properties.rayon || '').toLowerCase().replace(' район', '').trim();
-            let fillColor = '#111827';
-            let strokeColor = '#1f2937';
-            let fillOpacity = 0.85;
-            let weight = 0.8;
+            let fillColor = '#0a101d';
+            let strokeColor = '#1e293b';
+            let fillOpacity = 0.78;
+            let weight = 0.9;
 
             if (threatsData && threatsData.raion_levels) {
                 const lvl = threatsData.raion_levels[rName];
                 if (lvl === 'RED') {
-                    fillColor = '#b91c1c';
+                    fillColor = '#881337';
                     strokeColor = '#ef4444';
-                    fillOpacity = 0.80;
-                    weight = 1.2;
+                    fillOpacity = 0.82;
+                    weight = 1.3;
                 } else if (lvl === 'YELLOW') {
-                    fillColor = '#ca8a04';
-                    strokeColor = '#eab308';
-                    fillOpacity = 0.75;
-                    weight = 1.1;
-                } else if (lvl === 'NOMINAL') {
-                    fillColor = '#4c0519';
-                    strokeColor = '#831843';
-                    fillOpacity = 0.65;
+                    fillColor = '#854d0e';
+                    strokeColor = '#f59e0b';
+                    fillOpacity = 0.78;
+                    weight = 1.2;
                 }
             }
 
-            if (selectedRaionName && selectedRaionName.toLowerCase().includes(rName)) {
+            if (selectedRaionName && selectedRaionName.toLowerCase().replace(' район', '').trim() === rName) {
                 strokeColor = '#38bdf8';
-                weight = 2.5;
+                weight = 3.0;
+                fillOpacity = 0.90;
             }
 
             return {
@@ -301,14 +442,22 @@
             layer.on({
                 click: function() {
                     const rName = feature.properties.rayon || 'Район';
-                    selectRaion(rName, feature);
+                    selectRaion(rName, feature, layer);
+                },
+                mouseover: function(e) {
+                    const l = e.target;
+                    l.setStyle({ weight: 2.2, color: '#38bdf8' });
+                },
+                mouseout: function(e) {
+                    if (geojsonLayer) geojsonLayer.resetStyle(e.target);
+                    if (selectedRaionName) geojsonLayer.setStyle(getRaionStyle);
                 }
             });
         }
 
-        function selectRaion(raionName, feature) {
+        function selectRaion(raionName, feature, layer) {
             selectedRaionName = raionName;
-            geojsonLayer.setStyle(getRaionStyle);
+            if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
 
             const card = document.getElementById('info-card');
             document.getElementById('card-raion-name').innerText = raionName;
@@ -318,14 +467,14 @@
 
             const statusContainer = document.getElementById('card-status-container');
             if (lvl === 'RED') {
-                statusContainer.innerHTML = '<span class="card-status-badge status-red">🔴 ПОВІТРЯНА ТРИВОГА</span>';
+                statusContainer.innerHTML = '<span class="card-status-badge status-red">🔴 ОФІЦІЙНА ПОВІТРЯНА ТРИВОГА</span>';
             } else if (lvl === 'YELLOW') {
-                statusContainer.innerHTML = '<span class="card-status-badge status-yellow">🟡 ЗАГРОЗА / ДРОНИ ПОРУЧ</span>';
+                statusContainer.innerHTML = '<span class="card-status-badge status-yellow">🟡 РАДАРНА ЗАГРОЗА / ДРОНИ ПОРУЧ</span>';
             } else {
                 statusContainer.innerHTML = '<span class="card-status-badge status-clear">🟢 СПОКІЙНО (ТРИВОГИ НЕМАЄ)</span>';
             }
 
-            // Fetch live ETA for this raion
+            // Fetch live ETA calculation
             const etaBlock = document.getElementById('card-eta-text');
             etaBlock.innerHTML = '⏳ <i>Розрахунок кінематики підльоту...</i>';
 
@@ -334,8 +483,8 @@
                 .then(data => {
                     if (data && data.summary_text) {
                         let html = `<b>${data.summary_text}</b>`;
-                        if (data.min_distance_km) {
-                            html += `<br>📏 Дистанція: <b>${data.min_distance_km} км</b>`;
+                        if (data.min_distance_km !== undefined && data.min_distance_km !== null) {
+                            html += `<br>📏 Дистанція до найближчої цілі: <b>${data.min_distance_km} км</b>`;
                         }
                         etaBlock.innerHTML = html;
                     } else {
@@ -355,74 +504,197 @@
             if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
         }
 
+        // Two-way interaction: App -> Telegram Chat
+        function sendRaionToBot() {
+            if (!selectedRaionName) return;
+            if (tg) {
+                tg.sendData(JSON.stringify({ action: "select_raion", raion: selectedRaionName }));
+                tg.close();
+            } else {
+                alert(`Ви обрали: "${selectedRaionName}". Повідомлення передано боту.`);
+            }
+        }
+
         function setAsHomeRaion() {
             if (!selectedRaionName) return;
             if (tg) {
                 tg.sendData(JSON.stringify({ action: "set_home", raion: selectedRaionName }));
                 tg.close();
             } else {
-                alert(`Район "${selectedRaionName}" збережено як Мій район!`);
+                alert(`Район "${selectedRaionName}" збережено як «Мій район»!`);
             }
         }
 
-        // Render Drones Overlay
-        function updateDrones(dronesList) {
+        // Render Drones Overlay (Exact Match with Image 1)
+        function updateDrones(data) {
             dronesLayer.clearLayers();
-            if (!dronesList) return;
+            if (!data) return;
 
-            dronesList.forEach(d => {
+            const confirmed = data.confirmed_drones || (data.drones ? data.drones.filter(d => d.is_confirmed || d.lifecycle === 'confirmed') : []);
+            const probable = data.probable_drones || (data.drones ? data.drones.filter(d => !d.is_confirmed && d.lifecycle !== 'confirmed') : []);
+
+            // 1. Confirmed Drones (Solid Red & Solid line +1h)
+            confirmed.forEach(d => {
                 if (d.lat && d.lon) {
-                    const isConf = d.is_confirmed || d.lifecycle === 'confirmed';
-                    const markerHtml = isConf
-                        ? '<div class="drone-pulsing-marker"></div>'
-                        : '<div class="drone-prob-marker"></div>';
-
+                    const count = d.count || 1;
+                    const countStr = count > 1 ? ` x${count}` : '';
+                    
                     const icon = L.divIcon({
-                        className: 'custom-drone-icon',
-                        html: markerHtml,
-                        iconSize: [16, 16],
-                        iconAnchor: [8, 8]
+                        className: 'drone-custom-div',
+                        html: `
+                            <div class="drone-marker-wrap">
+                                <div class="drone-core-dot radar-core"></div>
+                                <div class="drone-pulse-ring radar-pulse-ring"></div>
+                                <div class="drone-text-badge radar-text-badge">БпЛА${countStr} (радар)</div>
+                            </div>
+                        `,
+                        iconSize: [12, 12],
+                        iconAnchor: [6, 6]
                     });
 
                     const marker = L.marker([d.lat, d.lon], { icon: icon });
-                    marker.bindPopup(`<b>${isConf ? '🔴 БпЛА (радар)' : '🟡 Ймовірний БпЛА'}</b><br>Курс: ${d.heading || '—'}°`);
+                    marker.bindPopup(`<b>🔴 БпЛА${countStr} (радар)</b><br>Курс: ${d.heading !== null && d.heading !== undefined ? d.heading + '°' : '—'}`);
                     dronesLayer.addLayer(marker);
 
-                    // Draw flight vector
+                    // Solid Extrapolation Vector (+1h projection at 180 km/h)
                     if (d.heading !== undefined && d.heading !== null) {
-                        const distKm = 30.0;
+                        const distKm = 140.0;
+                        const rad = d.heading * (Math.PI / 180.0);
+                        const dLat = (distKm * Math.cos(rad)) / 111.0;
+                        const dLon = (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
+                        const endPt = [d.lat + dLat, d.lon + dLon];
+
+                        // Flight vector line
+                        const line = L.polyline([[d.lat, d.lon], endPt], {
+                            color: '#f43f5e',
+                            weight: 2.2,
+                            opacity: 0.90
+                        });
+                        dronesLayer.addLayer(line);
+
+                        // Endpoint circle + Cross badge
+                        const endCircle = L.circle(endPt, {
+                            radius: 14000,
+                            color: '#f43f5e',
+                            fillColor: '#f43f5e',
+                            fillOpacity: 0.20,
+                            weight: 1
+                        });
+                        dronesLayer.addLayer(endCircle);
+
+                        const targetIcon = L.divIcon({
+                            className: 'target-custom-div',
+                            html: `<div class="target-cross-badge radar-target-badge">✕ +1г</div>`,
+                            iconSize: [40, 16],
+                            iconAnchor: [20, 8]
+                        });
+                        dronesLayer.addLayer(L.marker(endPt, { icon: targetIcon, interactive: false }));
+                    }
+                }
+            });
+
+            // 2. Probable Drones (Amber & Dashed line +1h?)
+            probable.forEach(d => {
+                if (d.lat && d.lon) {
+                    const count = d.count || 1;
+                    const countStr = count > 1 ? ` x${count}` : '';
+                    
+                    const icon = L.divIcon({
+                        className: 'drone-custom-div',
+                        html: `
+                            <div class="drone-marker-wrap">
+                                <div class="drone-core-dot prob-core"></div>
+                                <div class="drone-pulse-ring prob-pulse-ring"></div>
+                                <div class="drone-text-badge prob-text-badge">БпЛА${countStr} (ймов.)</div>
+                            </div>
+                        `,
+                        iconSize: [12, 12],
+                        iconAnchor: [6, 6]
+                    });
+
+                    const marker = L.marker([d.lat, d.lon], { icon: icon });
+                    marker.bindPopup(`<b>🟡 Ймовірний БпЛА${countStr}</b><br>Курс: ${d.heading !== null && d.heading !== undefined ? d.heading + '°' : '—'}`);
+                    dronesLayer.addLayer(marker);
+
+                    // Dashed Extrapolation Vector (+1h? projection)
+                    if (d.heading !== undefined && d.heading !== null) {
+                        const distKm = 140.0;
                         const rad = d.heading * (Math.PI / 180.0);
                         const dLat = (distKm * Math.cos(rad)) / 111.0;
                         const dLon = (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
                         const endPt = [d.lat + dLat, d.lon + dLon];
 
                         const line = L.polyline([[d.lat, d.lon], endPt], {
-                            color: isConf ? '#f43f5e' : '#fbbf24',
-                            weight: 2,
-                            dashArray: isConf ? null : '4, 4',
-                            opacity: 0.8
+                            color: '#fbbf24',
+                            weight: 2.0,
+                            dashArray: '5, 5',
+                            opacity: 0.85
                         });
                         dronesLayer.addLayer(line);
+
+                        const endCircle = L.circle(endPt, {
+                            radius: 12000,
+                            color: '#fbbf24',
+                            fillColor: '#fbbf24',
+                            fillOpacity: 0.16,
+                            weight: 1
+                        });
+                        dronesLayer.addLayer(endCircle);
+
+                        const targetIcon = L.divIcon({
+                            className: 'target-custom-div',
+                            html: `<div class="target-cross-badge prob-target-badge">✕ +1г?</div>`,
+                            iconSize: [42, 16],
+                            iconAnchor: [21, 8]
+                        });
+                        dronesLayer.addLayer(L.marker(endPt, { icon: targetIcon, interactive: false }));
                     }
                 }
             });
         }
 
-        // Polling loop
+        // Live Threats Polling
         function refreshThreats() {
             fetch('/api/threats')
                 .then(r => r.json())
                 .then(data => {
                     threatsData = data;
-                    document.getElementById('stats-drones').innerText = `${data.drones_count || 0} БпЛА`;
-                    document.getElementById('stats-time').innerText = new Date().toLocaleTimeString('uk-UA');
+                    document.getElementById('stats-radar').innerText = `${data.confirmed_count || 0} підтв.`;
+                    document.getElementById('stats-prob').innerText = `${data.probable_count || 0} ймов.`;
+                    document.getElementById('stats-alarms').innerText = `${data.active_alarms_count || 0} р-нів`;
+
                     if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
-                    updateDrones(data.drones);
+                    updateDrones(data);
                 })
                 .catch(e => console.log('Threats polling error', e));
         }
 
-        // Load GeoJSON
+        // Two-way interaction: Bot Message -> App Navigation via ?raion= parameter
+        function checkUrlParameters() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetRaion = urlParams.get('raion') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param);
+            if (!targetRaion || !geojsonLayer) return;
+
+            const cleanTarget = targetRaion.toLowerCase().replace(' район', '').trim();
+            let matchedLayer = null;
+            let matchedFeature = null;
+
+            geojsonLayer.eachLayer(layer => {
+                const rName = (layer.feature.properties.rayon || '').toLowerCase().replace(' район', '').trim();
+                if (rName === cleanTarget || rName.includes(cleanTarget) || cleanTarget.includes(rName)) {
+                    matchedLayer = layer;
+                    matchedFeature = layer.feature;
+                }
+            });
+
+            if (matchedLayer && matchedFeature) {
+                const rFullName = matchedFeature.properties.rayon || targetRaion;
+                map.flyToBounds(matchedLayer.getBounds(), { maxZoom: 8, duration: 1.2 });
+                selectRaion(rFullName, matchedFeature, matchedLayer);
+            }
+        }
+
+        // Load GeoJSON Boundaries
         fetch('/api/geojson')
             .then(r => r.json())
             .then(geojson => {
@@ -431,9 +703,9 @@
                     onEachFeature: onEachFeature
                 }).addTo(map);
 
-                // Start polling once map is ready
                 refreshThreats();
                 setInterval(refreshThreats, 15000);
+                setTimeout(checkUrlParameters, 400);
             });
     </script>
 </body>

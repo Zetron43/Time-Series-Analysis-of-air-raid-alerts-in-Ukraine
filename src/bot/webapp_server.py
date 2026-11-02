@@ -87,7 +87,7 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
         # 3. Live threats & raion levels
         if path == "/api/threats":
             snap = syncer.state.get_snapshot()
-            alerts_raions = snap["alerts_raions"]
+            alerts_raions = snap.get("alerts_raions", {})
             raion_levels = {}
             for r_full, info in alerts_raions.items():
                 if info.get("active"):
@@ -95,24 +95,34 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                     raion_levels[r_clean] = info.get("level", "YELLOW").upper()
 
             # Supplement with Neptun radar warnings
-            for item in snap["nep_alerts"].get("raions", []):
+            for item in snap.get("nep_alerts", {}).get("raions", []):
                 r_clean = item.get("name", "").lower().replace(" район", "").strip()
                 if r_clean not in raion_levels:
                     raion_levels[r_clean] = item.get("level", "yellow").upper()
 
             # Supplement with Dimap alerts
-            for item in snap["dimap_alerts"]:
+            for item in snap.get("dimap_alerts", []):
                 r_clean = item.get("region", "").lower().replace(" район", "").strip()
                 lvl = "RED" if item.get("color") == "red" else "YELLOW"
                 if r_clean not in raion_levels or lvl == "RED":
                     raion_levels[r_clean] = lvl
 
-            threats = snap["raw_threats"]
+            threats = snap.get("raw_threats", [])
+            classified = snap.get("classified_drones", {})
+            confirmed_threats = classified.get("confirmed_threats", [])
+            probable_threats = classified.get("probable_threats", [])
+            active_alarms_count = sum(1 for lvl in raion_levels.values() if lvl == "RED")
+
             payload = {
-                "updated_at": snap["last_updated"].isoformat() if snap["last_updated"] else None,
+                "updated_at": snap["last_updated"].isoformat() if snap.get("last_updated") else None,
                 "drones_count": len(threats),
+                "confirmed_count": classified.get("confirmed_count", len(confirmed_threats)),
+                "probable_count": classified.get("probable_count", len(probable_threats)),
+                "active_alarms_count": active_alarms_count,
                 "raion_levels": raion_levels,
-                "drones": threats[:30],
+                "confirmed_drones": confirmed_threats[:35],
+                "probable_drones": probable_threats[:35],
+                "drones": threats[:40],
             }
             body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
             self.send_response(200)
