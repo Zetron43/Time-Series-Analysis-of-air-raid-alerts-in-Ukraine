@@ -2164,6 +2164,24 @@ def run_live_polling(token: str):
     bot_user = me["result"]["username"]
     print(f"[+] Бот @{bot_user} успішно підключено та очікує повідомлень користувачів...\n", flush=True)
 
+    # 4. Configure native Telegram Chat Menu Button with WebApp
+    webapp_url = os.environ.get("WEBAPP_URL") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if webapp_url:
+        webapp_url = webapp_url.strip()
+        if not webapp_url.startswith("http://") and not webapp_url.startswith("https://"):
+            webapp_url = f"https://{webapp_url}"
+        menu_btn_res = telegram_api_call(token, "setChatMenuButton", {
+            "menu_button": {
+                "type": "web_app",
+                "text": "🗺 Мапа тривог",
+                "web_app": {"url": webapp_url}
+            }
+        })
+        if menu_btn_res.get("ok"):
+            print(f"[+] Нативну меню-кнопку Telegram Mini App успішно активовано: {webapp_url}", flush=True)
+        else:
+            print(f"[-] Не вдалося оновити ChatMenuButton: {menu_btn_res.get('description')}", flush=True)
+
     conflict_retry_count = 0
 
     while True:
