@@ -198,88 +198,76 @@ class AlertMapRenderer:
                     )
                     ax.add_patch(patch)
 
-        # 2. Draw active drones (Confirmed vs Probable)
+        # Map border frame to prevent any element appearing outside Ukraine boundaries
+        border_box = patches.Rectangle(
+            (21.9, 44.15),
+            40.4 - 21.9,
+            52.45 - 44.15,
+            linewidth=1.0,
+            edgecolor="#334155",
+            facecolor="none",
+            linestyle="--",
+            alpha=0.6,
+            zorder=3,
+        )
+        ax.add_patch(border_box)
+
+        # 2. Draw active drones categorized into 3 Threat Tiers (Red / Orange / Yellow)
+        # Clamped strictly within Ukraine borders [44.40..52.35 N, 22.15..40.15 E]
+        UKRAINE_MIN_LAT, UKRAINE_MAX_LAT = 44.38, 52.35
+        UKRAINE_MIN_LON, UKRAINE_MAX_LON = 22.15, 40.15
+
         drone_speed_kmh = 180.0
-        dist_km = drone_speed_kmh * (horizon_minutes / 60.0)
+        # Capped tactical horizon (max 35-45 km to avoid crossing the entire country)
+        dist_km = min(40.0, drone_speed_kmh * (horizon_minutes / 60.0))
 
-        # 2.1 Draw Confirmed Drones (Solid Red markers & solid extrapolation lines)
+        # Combine and classify threats:
+        # Tier 1 (HIGH / Red #ef4444): Confirmed by radar / military
+        # Tier 2 (MEDIUM / Orange #f97316): Probable groups (count > 1)
+        # Tier 3 (LOW / Yellow #fbbf24): Single probable / acoustic detections
+        all_threats = []
         for t in confirmed_threats:
-            lat = t.get("lat")
-            lon = t.get("lon")
-            if lat is None or lon is None:
-                continue
-
-            heading = t.get("heading")
-            count = int(t.get("count", 1) or 1)
-
-            # Solid Red position marker
-            ax.plot(lon, lat, marker="o", markersize=8, color="#ef4444", zorder=12)
-            ax.plot(lon, lat, marker="o", markersize=16, color="#ef4444", alpha=0.35, zorder=11)
-
-            count_label = f" x{count}" if count > 1 else ""
-            ax.text(
-                lon + 0.08,
-                lat + 0.06,
-                f"БпЛА{count_label} (радар)",
-                color="#ffffff",
-                fontsize=7.5,
-                fontweight="bold",
-                zorder=14,
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="#1e1e2f", edgecolor="#ef4444", alpha=0.90, linewidth=0.8),
-            )
-
-            # Extrapolation vector
-            if heading is not None:
-                heading_rad = math.radians(heading)
-                d_lat = (dist_km * math.cos(heading_rad)) / 111.0
-                d_lon = (dist_km * math.sin(heading_rad)) / (111.0 * math.cos(math.radians(lat)))
-
-                target_lat = lat + d_lat
-                target_lon = lon + d_lon
-
-                ax.plot([lon, target_lon], [lat, target_lat], color="#f43f5e", linestyle="-", linewidth=1.6, alpha=0.90, zorder=10)
-
-                horizon_label = f"+{horizon_minutes}хв" if horizon_minutes < 60 else f"+{horizon_minutes//60}г"
-                ax.plot(target_lon, target_lat, marker="x", markersize=6.5, color="#f43f5e", zorder=12)
-                circle = patches.Circle((target_lon, target_lat), radius=0.20, color="#f43f5e", fill=True, alpha=0.20, zorder=9)
-                ax.add_patch(circle)
-                ax.text(
-                    target_lon + 0.05,
-                    target_lat - 0.08,
-                    horizon_label,
-                    color="#fca5a5",
-                    fontsize=7,
-                    fontweight="bold",
-                    zorder=13,
-                )
-
-        # 2.2 Draw Probable Drones (Amber-Orange markers & dashed extrapolation lines)
+            all_threats.append({**t, "tier": "HIGH", "color": "#ef4444"})
         for t in probable_threats:
+            count = int(t.get("count", 1) or 1)
+            tier = "MEDIUM" if count > 1 else "LOW"
+            color = "#f97316" if count > 1 else "#fbbf24"
+            all_threats.append({**t, "tier": tier, "color": color})
+
+        for t in all_threats:
             lat = t.get("lat")
             lon = t.get("lon")
             if lat is None or lon is None:
                 continue
 
+            # Ensure drone origin is clamped
+            lat = max(UKRAINE_MIN_LAT, min(UKRAINE_MAX_LAT, lat))
+            lon = max(UKRAINE_MIN_LON, min(UKRAINE_MAX_LON, lon))
+
             heading = t.get("heading")
             count = int(t.get("count", 1) or 1)
+            color = t.get("color", "#ef4444")
+            tier = t.get("tier", "HIGH")
 
-            # Amber position marker
-            ax.plot(lon, lat, marker="o", markersize=6.5, color="#f59e0b", zorder=10)
-            ax.plot(lon, lat, marker="o", markersize=13, color="#f59e0b", alpha=0.30, zorder=9)
+            # Sleek tactical radar blip (No bulky text boxes!)
+            marker_size = 7 if tier == "HIGH" else (6 if tier == "MEDIUM" else 5)
+            ax.plot(lon, lat, marker="o", markersize=marker_size, color=color, zorder=12)
+            ax.plot(lon, lat, marker="o", markersize=marker_size * 2, color=color, alpha=0.32, zorder=11)
 
-            count_label = f" x{count}" if count > 1 else ""
-            ax.text(
-                lon + 0.08,
-                lat + 0.06,
-                f"БпЛА{count_label} (ймов.)",
-                color="#fef3c7",
-                fontsize=7.0,
-                fontweight="bold",
-                zorder=13,
-                bbox=dict(boxstyle="round,pad=0.2", facecolor="#1e1e2f", edgecolor="#f59e0b", alpha=0.85, linewidth=0.7),
-            )
+            # Only show neat mini badge if group of drones (x2, x3...)
+            if count > 1:
+                ax.text(
+                    lon + 0.08,
+                    lat + 0.06,
+                    f"x{count}",
+                    color="#ffffff",
+                    fontsize=7.0,
+                    fontweight="bold",
+                    zorder=14,
+                    bbox=dict(boxstyle="round,pad=0.15", facecolor=color, edgecolor="#ffffff", alpha=0.90, linewidth=0.6),
+                )
 
-            # Extrapolation vector
+            # Extrapolation vector strictly clamped to Ukraine borders
             if heading is not None:
                 heading_rad = math.radians(heading)
                 d_lat = (dist_km * math.cos(heading_rad)) / 111.0
@@ -288,21 +276,17 @@ class AlertMapRenderer:
                 target_lat = lat + d_lat
                 target_lon = lon + d_lon
 
-                ax.plot([lon, target_lon], [lat, target_lat], color="#fbbf24", linestyle="--", linewidth=1.3, alpha=0.75, zorder=8)
+                # Clamp target strictly inside Ukraine borders
+                target_lat = max(UKRAINE_MIN_LAT, min(UKRAINE_MAX_LAT, target_lat))
+                target_lon = max(UKRAINE_MIN_LON, min(UKRAINE_MAX_LON, target_lon))
 
-                horizon_label = f"+{horizon_minutes}хв" if horizon_minutes < 60 else f"+{horizon_minutes//60}г"
-                ax.plot(target_lon, target_lat, marker="x", markersize=5.5, color="#fbbf24", zorder=10)
-                circle = patches.Circle((target_lon, target_lat), radius=0.18, color="#fbbf24", fill=True, alpha=0.14, zorder=7)
-                ax.add_patch(circle)
-                ax.text(
-                    target_lon + 0.05,
-                    target_lat - 0.08,
-                    f"{horizon_label}?",
-                    color="#fde68a",
-                    fontsize=6.8,
-                    fontweight="bold",
-                    zorder=11,
-                )
+                # Draw clean trajectory line
+                linestyle = "-" if tier == "HIGH" else ("--" if tier == "MEDIUM" else ":")
+                lw = 1.6 if tier == "HIGH" else 1.2
+                ax.plot([lon, target_lon], [lat, target_lat], color=color, linestyle=linestyle, linewidth=lw, alpha=0.85, zorder=10)
+
+                # Small sleek arrow tip at target
+                ax.plot(target_lon, target_lat, marker=".", markersize=5, color=color, zorder=12)
 
         # Title & Subtitle Banner
         fig.text(0.04, 0.94, "КАРТА ПОВІТРЯНИХ ЗАГРОЗ ТА ВЕКТОРІВ БпЛА (РАЙОНИ УКРАЇНИ)", color="#f8fafc", fontsize=15, fontweight="bold")
@@ -318,9 +302,9 @@ class AlertMapRenderer:
         leg_items = [
             ("● Червоний район", f"Офіційна повітряна/ракетна тривога ({red_count} районів)"),
             ("● Жовтий район", f"Загроза ударних дронів / БпЛА ({yellow_count} районів)"),
-            ("● Червоний маркер", f"Підтверджений БпЛА (радар) — {confirmed_count} од."),
-            ("● Жовтий маркер", f"Ймовірний / розрахунковий БпЛА — {probable_count} од."),
-            ("--> Стрілка", f"Прогноз положення через {horizon_minutes} хв (~{int(drone_speed_kmh)} км/год)"),
+            ("● Червоний БпЛА", f"Висока загроза (радар ЗСУ) — {confirmed_count} од."),
+            ("● Оранжевий / Жовтий", f"Ймовірні групи та розрахункові цілі — {probable_count} од."),
+            ("── Вектор", "Курс БпЛА (вектори обмежені кордонами України)"),
         ]
         if highlight_raion:
             leg_items.append(("■ Блакитний контур", f"Ваш район: {highlight_raion}"))
