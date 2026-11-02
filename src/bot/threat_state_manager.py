@@ -237,27 +237,7 @@ class BackgroundThreatSyncer:
                 "source": "alerts.in.ua",
             }
 
-        # Check Neptun radar alerts for this raion
-        for item in snap["nep_alerts"].get("raions", []):
-            item_name = item.get("name", "").lower().replace(" район", "").strip()
-            if clean_target in item_name or item_name in clean_target:
-                return {
-                    "active": True,
-                    "level": item.get("level", "yellow").upper(),
-                    "source": "neptun",
-                }
-
-        # Check Dimap alerts
-        for item in snap["dimap_alerts"]:
-            reg = item.get("region", "").lower().replace(" район", "").strip()
-            if clean_target in reg or reg in clean_target:
-                return {
-                    "active": True,
-                    "level": "RED" if item.get("color") == "red" else "YELLOW",
-                    "source": "dimap",
-                }
-
-        return {"active": False, "level": "CLEAR", "source": "all_clear"}
+        return {"active": False, "level": "CLEAR", "source": "alerts.in.ua"}
 
     def get_raion_eta_analysis(self, raion_name: str) -> Dict[str, Any]:
         """Calculates tactical approach vectors and ETA in < 0.001s."""

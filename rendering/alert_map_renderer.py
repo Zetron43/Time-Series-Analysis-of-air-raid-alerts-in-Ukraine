@@ -13,6 +13,7 @@ import numpy as np
 from src.ingestion.alerts_live_client import AlertsInUaLiveClient, KYIV_TZ
 from src.ingestion.neptun_client import NeptunClient
 from src.ingestion.dimap_client import DimapClient
+from src.bot.border_filter import is_point_in_ukraine
 
 
 class AlertMapRenderer:
@@ -73,29 +74,12 @@ class AlertMapRenderer:
             nep_alerts = neptun.get_alerts()
             dimap_alerts = dimap.get_alerts()
 
-        # Build independent raion status dictionary
+        # Build independent raion status dictionary strictly from alerts.in.ua (Ground Truth)
         raion_levels: Dict[str, str] = {}
-
-        # 1.1 Alerts.in.ua raion status (Ground Truth)
         for r_full_name, r_info in alerts_raions.items():
             r_clean = r_full_name.lower().replace(" район", "").strip()
             if r_info.get("active"):
                 raion_levels[r_clean] = r_info.get("level", "YELLOW").upper()
-
-        # 1.2 Supplement with Neptun radar warnings if clear in official sirens
-        for item in nep_alerts.get("raions", []):
-            r_name = item.get("name", "").strip().lower().replace(" район", "")
-            lvl = item.get("level", "yellow").upper()
-            if r_name not in raion_levels:
-                raion_levels[r_name] = lvl
-
-        # 1.3 Supplement with Dimap raion alerts
-        for item in dimap_alerts:
-            reg = item.get("region", "").strip().lower().replace(" район", "")
-            color = item.get("color", "red").upper()
-            lvl = "RED" if color == "RED" else "YELLOW"
-            if reg not in raion_levels or lvl == "RED":
-                raion_levels[reg] = lvl
 
         # Setup Matplotlib figure
         fig, ax = plt.subplots(figsize=(15, 9), dpi=140)
@@ -240,9 +224,9 @@ class AlertMapRenderer:
             if lat is None or lon is None:
                 continue
 
-            # Ensure drone origin is clamped
-            lat = max(UKRAINE_MIN_LAT, min(UKRAINE_MAX_LAT, lat))
-            lon = max(UKRAINE_MIN_LON, min(UKRAINE_MAX_LON, lon))
+            # Strict sovereign border filter: discard telemetry outside Ukraine (Black Sea / neighboring countries)
+            if not is_point_in_ukraine(lat, lon):
+                continue
 
             heading = t.get("heading")
             count = int(t.get("count", 1) or 1)

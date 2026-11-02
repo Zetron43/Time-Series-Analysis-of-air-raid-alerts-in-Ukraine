@@ -22,6 +22,7 @@ import urllib.parse
 from src.bot.threat_state_manager import get_threat_syncer
 from src.bot.eta_calculator import KinematicETACalculator
 from src.bot.subscription_manager import UserSubscriptionManager
+from src.bot.border_filter import is_point_in_ukraine
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 WEBAPP_HTML_PATH = BASE_DIR / "rendering" / "webapp" / "index.html"
@@ -104,19 +105,6 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                     r_clean = r_full.lower().replace(" район", "").strip()
                     raion_levels[r_clean] = info.get("level", "YELLOW").upper()
 
-            # Supplement with Neptun radar warnings
-            for item in snap.get("nep_alerts", {}).get("raions", []):
-                r_clean = item.get("name", "").lower().replace(" район", "").strip()
-                if r_clean not in raion_levels:
-                    raion_levels[r_clean] = item.get("level", "yellow").upper()
-
-            # Supplement with Dimap alerts
-            for item in snap.get("dimap_alerts", []):
-                r_clean = item.get("region", "").lower().replace(" район", "").strip()
-                lvl = "RED" if item.get("color") == "red" else "YELLOW"
-                if r_clean not in raion_levels or lvl == "RED":
-                    raion_levels[r_clean] = lvl
-
             threats = snap.get("raw_threats", [])
             classified = snap.get("classified_drones", {})
             active_alarms_count = sum(1 for lvl in raion_levels.values() if lvl == "RED")
@@ -135,10 +123,8 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                     continue
 
                 # Strict Ukraine sovereign boundary filter:
-                # Discard any noise/telemetry outside Ukrainian borders (e.g. far into Black Sea or Moldova/Romania)
-                if f_lat < 44.38 or f_lat > 52.38 or f_lon < 22.14 or f_lon > 40.22:
-                    continue
-                if f_lon < 28.0 and f_lat < 47.9 and not (f_lon >= 25.0 and f_lat >= 47.9) and not (f_lon >= 28.5 and f_lat <= 45.6):
+                # Discard any noise/telemetry outside Ukrainian land borders (e.g. far into Black Sea or Moldova/Romania)
+                if not is_point_in_ukraine(f_lat, f_lon):
                     continue
 
                 is_conf = bool(t.get("is_confirmed") or t.get("lifecycle") == "confirmed")
