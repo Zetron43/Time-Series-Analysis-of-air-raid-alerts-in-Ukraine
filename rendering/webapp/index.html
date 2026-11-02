@@ -173,16 +173,24 @@
         }
 
         .tab-panel {
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
             height: 100%;
-            display: none;
+            opacity: 0;
+            pointer-events: none;
+            visibility: hidden;
             overflow-y: auto;
-            position: relative;
             background: var(--bg-color);
+            z-index: 1;
         }
 
         .tab-panel.active {
-            display: block;
+            opacity: 1;
+            pointer-events: auto;
+            visibility: visible;
+            z-index: 10;
         }
 
         /* Map styling */
@@ -650,13 +658,6 @@
         // Init Telegram WebApp
         const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
         let userChatId = null;
-        if (tg) {
-            tg.ready();
-            tg.expand();
-            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
-                userChatId = tg.initDataUnsafe.user.id;
-            }
-        }
 
         // Ukraine map strict boundaries (Cannot pan outside Ukraine!)
         const ukraineSouthWest = L.latLng(43.8, 21.5);
@@ -673,6 +674,35 @@
         }).setView([48.6, 31.4], 6);
 
         L.control.zoom({ position: 'topright' }).addTo(map);
+
+        // Auto-resynchronize map container and SVG/Marker projection matrix
+        function resyncMapSize() {
+            if (map) {
+                map.invalidateSize({ animate: false, reset: true });
+            }
+        }
+
+        if (tg) {
+            tg.ready();
+            tg.expand();
+            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                userChatId = tg.initDataUnsafe.user.id;
+            }
+            // Listen to Telegram WebApp viewport changes (expand, orientation, keyboard)
+            tg.onEvent('viewportChanged', resyncMapSize);
+        }
+
+        window.addEventListener('resize', resyncMapSize);
+        window.addEventListener('orientationchange', () => setTimeout(resyncMapSize, 120));
+
+        // ResizeObserver on #map DOM element prevents canvas/SVG pane desynchronization
+        if (window.ResizeObserver) {
+            const mapEl = document.getElementById('map');
+            if (mapEl) {
+                const ro = new ResizeObserver(() => resyncMapSize());
+                ro.observe(mapEl);
+            }
+        }
 
         let geojsonLayer = null;
         let dronesLayer = L.layerGroup().addTo(map);
@@ -738,7 +768,8 @@
             if (targetBtn) targetBtn.classList.add('active');
 
             if (tabId === 'tab-map') {
-                setTimeout(() => map.invalidateSize(), 150);
+                setTimeout(resyncMapSize, 50);
+                setTimeout(resyncMapSize, 200);
             }
         }
 
@@ -1012,7 +1043,7 @@
 
         // Live Threats Polling
         function refreshThreats() {
-            fetch('/api/threats')
+            fetch('/api/threats?_t=' + Date.now())
                 .then(r => r.json())
                 .then(data => {
                     threatsData = data;
@@ -1203,9 +1234,12 @@
         }
 
         // Load GeoJSON and Initialize
-        fetch('/api/geojson')
+        fetch('/api/geojson?_t=' + Date.now())
             .then(r => r.json())
             .then(geojson => {
+                if (geojsonLayer) {
+                    map.removeLayer(geojsonLayer);
+                }
                 geojsonLayer = L.geoJSON(geojson, {
                     style: getRaionStyle,
                     onEachFeature: onEachFeature
@@ -1216,6 +1250,7 @@
                 refreshThreats();
                 setInterval(refreshThreats, 15000);
                 setTimeout(checkUrlParameters, 400);
+                setTimeout(resyncMapSize, 300);
             });
     </script>
 </body>

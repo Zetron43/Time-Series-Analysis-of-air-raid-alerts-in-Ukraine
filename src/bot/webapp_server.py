@@ -52,6 +52,11 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
 
+    def send_no_cache_headers(self):
+        self.send_header("Cache-Control", "no-cache, no-store, must-revalidate, max-age=0")
+        self.send_header("Pragma", "no-cache")
+        self.send_header("Expires", "0")
+
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_cors_headers()
@@ -71,6 +76,7 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "text/html; charset=utf-8")
                 self.send_header("Content-Length", str(len(content)))
                 self.send_cors_headers()
+                self.send_no_cache_headers()
                 self.end_headers()
                 self.wfile.write(content)
                 return
@@ -89,6 +95,7 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", "application/json; charset=utf-8")
                 self.send_header("Content-Length", str(len(_CACHED_GEOJSON_BYTES)))
                 self.send_cors_headers()
+                self.send_no_cache_headers()
                 self.end_headers()
                 self.wfile.write(_CACHED_GEOJSON_BYTES)
                 return
@@ -167,6 +174,7 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_cors_headers()
+            self.send_no_cache_headers()
             self.end_headers()
             self.wfile.write(body)
             return
@@ -183,6 +191,7 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_cors_headers()
+            self.send_no_cache_headers()
             self.end_headers()
             self.wfile.write(body)
             return
@@ -202,6 +211,7 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_cors_headers()
+            self.send_no_cache_headers()
             self.end_headers()
             self.wfile.write(body)
             return
@@ -222,6 +232,7 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
             self.send_header("Content-Type", "application/json; charset=utf-8")
             self.send_header("Content-Length", str(len(body)))
             self.send_cors_headers()
+            self.send_no_cache_headers()
             self.end_headers()
             self.wfile.write(body)
             return
