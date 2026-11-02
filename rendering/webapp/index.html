@@ -2,351 +2,664 @@
 <html lang="uk">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Вартовий Неба | Тактична Мапа Тривог та БпЛА</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>AirAlerts | Вартовий Неба</title>
     <!-- Telegram WebApp SDK -->
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <!-- Leaflet CSS & JS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
+        :root {
+            --bg-color: #17212b;
+            --secondary-bg: #0e1621;
+            --card-bg: #242f3d;
+            --card-hover: #2b394a;
+            --text-color: #f5f5f5;
+            --text-muted: #8e9ca8;
+            --accent: #2b98e8;
+            --accent-gradient: linear-gradient(135deg, #2b98e8, #1877f2);
+            --red: #f44336;
+            --red-bg: rgba(244, 67, 54, 0.18);
+            --orange: #ff9800;
+            --orange-bg: rgba(255, 152, 0, 0.18);
+            --green: #4caf50;
+            --green-bg: rgba(76, 175, 80, 0.18);
+            --yellow: #fbc02d;
+            --border-color: rgba(255, 255, 255, 0.08);
+            --tab-height: 56px;
+        }
+
         * {
             box-sizing: border-box;
             margin: 0;
             padding: 0;
             -webkit-tap-highlight-color: transparent;
         }
+
         body, html {
             width: 100%;
             height: 100%;
             overflow: hidden;
-            background-color: #060a14;
+            background-color: var(--bg-color);
             font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-            color: #f1f5f9;
-        }
-        #map {
-            width: 100%;
-            height: 100%;
-            background: #060a14;
+            color: var(--text-color);
         }
 
-        /* Top HUD Bar */
-        .hud-header {
-            position: absolute;
-            top: 10px;
-            left: 10px;
-            right: 10px;
-            z-index: 1000;
-            background: rgba(13, 19, 33, 0.92);
-            backdrop-filter: blur(10px);
-            border: 1px solid rgba(56, 189, 248, 0.25);
-            border-radius: 12px;
-            padding: 8px 14px;
+        #app-container {
+            display: flex;
+            flex-direction: column;
+            width: 100%;
+            height: 100%;
+            position: relative;
+        }
+
+        /* Top Bar matching BotFather style (Image 2) */
+        .app-header {
+            background-color: var(--bg-color);
+            padding: 10px 16px 8px 16px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.65);
+            border-bottom: 1px solid var(--border-color);
+            z-index: 1000;
         }
-        .hud-title {
-            font-size: 13px;
-            font-weight: 800;
+
+        .header-profile {
             display: flex;
             align-items: center;
-            gap: 7px;
-            color: #38bdf8;
-            letter-spacing: 0.3px;
+            gap: 12px;
         }
-        .pulse-dot {
-            width: 9px;
-            height: 9px;
-            background-color: #ef4444;
+
+        .bot-avatar {
+            width: 38px;
+            height: 38px;
             border-radius: 50%;
-            box-shadow: 0 0 8px #ef4444;
+            background: linear-gradient(135deg, #ff9800, #f44336);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 19px;
+            font-weight: 800;
+            color: #ffffff;
+            box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+        }
+
+        .bot-meta {
+            display: flex;
+            flex-direction: column;
+        }
+
+        .bot-name {
+            font-size: 15px;
+            font-weight: 700;
+            color: var(--text-color);
+            display: flex;
+            align-items: center;
+            gap: 5px;
+        }
+
+        .bot-sub {
+            font-size: 12px;
+            color: var(--text-muted);
+        }
+
+        .live-chip {
+            background: var(--red-bg);
+            color: var(--red);
+            font-size: 11px;
+            font-weight: 700;
+            padding: 2px 8px;
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .pulse-mini {
+            width: 6px;
+            height: 6px;
+            background: var(--red);
+            border-radius: 50%;
             animation: pulse-ring 1.3s infinite;
         }
+
         @keyframes pulse-ring {
             0% { transform: scale(0.9); opacity: 0.9; }
             50% { transform: scale(1.4); opacity: 0.3; }
             100% { transform: scale(0.9); opacity: 0.9; }
         }
-        .hud-stats {
-            font-size: 11px;
-            font-weight: 600;
-            color: #cbd5e1;
-            text-align: right;
-            line-height: 1.3;
-        }
-        .stat-badge {
-            font-weight: 700;
-        }
-        .stat-radar { color: #f87171; }
-        .stat-prob { color: #fbbf24; }
-        .stat-alarms { color: #f43f5e; }
 
-        /* Floating Raion Detail Card */
-        .info-card {
-            position: absolute;
-            bottom: 16px;
-            left: 10px;
-            right: 10px;
-            max-width: 460px;
-            margin: 0 auto;
+        /* Search input bar matching Image 2 */
+        .search-container {
+            background-color: var(--bg-color);
+            padding: 8px 16px;
+            border-bottom: 1px solid var(--border-color);
             z-index: 1000;
-            background: rgba(15, 23, 42, 0.96);
-            backdrop-filter: blur(14px);
-            border: 1px solid rgba(56, 189, 248, 0.35);
-            border-radius: 16px;
-            padding: 14px 16px;
-            box-shadow: 0 12px 36px rgba(0, 0, 0, 0.8);
-            display: none;
-            transition: all 0.25s ease-out;
         }
-        .card-header {
+
+        .search-box {
+            display: flex;
+            align-items: center;
+            background-color: var(--card-bg);
+            border-radius: 10px;
+            padding: 8px 12px;
+            gap: 8px;
+        }
+
+        .search-icon {
+            color: var(--text-muted);
+            font-size: 14px;
+        }
+
+        .search-input {
+            width: 100%;
+            background: transparent;
+            border: none;
+            outline: none;
+            color: var(--text-color);
+            font-size: 14px;
+        }
+
+        .search-input::placeholder {
+            color: var(--text-muted);
+        }
+
+        /* View Containers */
+        .view-content {
+            flex: 1;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .tab-panel {
+            width: 100%;
+            height: 100%;
+            display: none;
+            overflow-y: auto;
+            position: relative;
+            background: var(--bg-color);
+        }
+
+        .tab-panel.active {
+            display: block;
+        }
+
+        /* Map styling */
+        #map {
+            width: 100%;
+            height: 100%;
+            background: #0d1520;
+        }
+
+        .map-legend-bar {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            right: 12px;
+            z-index: 500;
+            background: rgba(23, 33, 43, 0.88);
+            backdrop-filter: blur(8px);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 6px 12px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            font-size: 11.5px;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+        }
+
+        /* List views matching Image 2 BotFather cards */
+        .section-header {
+            padding: 12px 16px 6px 16px;
+            font-size: 13px;
+            font-weight: 700;
+            color: var(--accent);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .card-group {
+            margin: 0 12px 14px 12px;
+            background-color: var(--card-bg);
+            border-radius: 12px;
+            overflow: hidden;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+        }
+
+        .list-item {
+            display: flex;
+            align-items: center;
+            padding: 12px 14px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+            transition: background-color 0.12s;
+        }
+
+        .list-item:last-child {
+            border-bottom: none;
+        }
+
+        .list-item:active, .list-item:hover {
+            background-color: var(--card-hover);
+        }
+
+        .item-avatar {
+            width: 36px;
+            height: 36px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 15px;
+            font-weight: 800;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .avatar-red { background: #d32f2f; color: #ffffff; }
+        .avatar-orange { background: #f57c00; color: #ffffff; }
+        .avatar-green { background: #388e3c; color: #ffffff; }
+        .avatar-home { background: linear-gradient(135deg, #0284c7, #2563eb); color: #ffffff; }
+        .avatar-zone { background: #455a64; color: #ffffff; }
+
+        .item-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .item-title {
+            font-size: 14.5px;
+            font-weight: 600;
+            color: var(--text-color);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-subtitle {
+            font-size: 12px;
+            color: var(--text-muted);
+            margin-top: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .item-chevron {
+            color: var(--text-muted);
+            font-size: 16px;
+            margin-left: 8px;
+        }
+
+        /* Bottom Sheet Detail Modal */
+        .detail-sheet {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            background: #1f2b38;
+            border-top: 1px solid rgba(255, 255, 255, 0.12);
+            border-top-left-radius: 18px;
+            border-top-right-radius: 18px;
+            padding: 16px;
+            z-index: 2000;
+            box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.7);
+            display: none;
+            animation: slideUp 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            max-height: 85%;
+            overflow-y: auto;
+        }
+
+        @keyframes slideUp {
+            from { transform: translateY(100%); }
+            to { transform: translateY(0); }
+        }
+
+        .sheet-handle {
+            width: 36px;
+            height: 4px;
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 2px;
+            margin: 0 auto 12px auto;
+        }
+
+        .sheet-header {
             display: flex;
             justify-content: space-between;
             align-items: flex-start;
-            margin-bottom: 6px;
+            margin-bottom: 12px;
         }
-        .card-title {
-            font-size: 16px;
+
+        .sheet-title {
+            font-size: 17px;
             font-weight: 800;
-            color: #ffffff;
         }
-        .card-subtitle {
-            font-size: 12px;
-            color: #94a3b8;
-            font-weight: 500;
+
+        .sheet-sub {
+            font-size: 12.5px;
+            color: var(--text-muted);
         }
-        .close-btn {
+
+        .sheet-close-btn {
             background: none;
             border: none;
-            color: #94a3b8;
+            color: var(--text-muted);
             font-size: 20px;
             cursor: pointer;
-            padding: 0 4px;
-            line-height: 1;
+            padding: 4px;
         }
-        .card-status-badge {
-            display: inline-block;
-            font-size: 12px;
-            font-weight: 800;
-            padding: 5px 12px;
+
+        .sheet-status-pill {
+            display: inline-flex;
+            align-items: center;
+            gap: 6px;
+            padding: 6px 12px;
             border-radius: 8px;
-            margin: 6px 0 8px 0;
-            letter-spacing: 0.3px;
-        }
-        .status-red {
-            background: rgba(220, 38, 38, 0.25);
-            color: #f87171;
-            border: 1px solid #ef4444;
-        }
-        .status-yellow {
-            background: rgba(217, 119, 6, 0.25);
-            color: #fbbf24;
-            border: 1px solid #f59e0b;
-        }
-        .status-clear {
-            background: rgba(16, 185, 129, 0.2);
-            color: #34d399;
-            border: 1px solid #10b981;
-        }
-        .eta-block {
-            background: rgba(30, 41, 59, 0.7);
-            border-radius: 10px;
-            padding: 9px 12px;
-            margin: 8px 0 12px 0;
             font-size: 12.5px;
-            line-height: 1.45;
-            color: #e2e8f0;
-            border-left: 3.5px solid #38bdf8;
-        }
-        .card-actions-row {
-            display: flex;
-            gap: 8px;
-            margin-top: 4px;
-        }
-        .action-btn {
-            flex: 1;
-            padding: 10px 0;
-            border: none;
-            border-radius: 10px;
             font-weight: 700;
-            font-size: 12.5px;
+            margin-bottom: 10px;
+        }
+
+        .pill-red { background: var(--red-bg); color: var(--red); border: 1px solid var(--red); }
+        .pill-yellow { background: var(--orange-bg); color: var(--orange); border: 1px solid var(--orange); }
+        .pill-clear { background: var(--green-bg); color: var(--green); border: 1px solid var(--green); }
+
+        .sheet-section {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 10px 12px;
+            margin-bottom: 10px;
+            font-size: 13px;
+            line-height: 1.45;
+        }
+
+        .sheet-actions {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .btn-action {
+            padding: 10px 0;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 700;
             cursor: pointer;
+            border: none;
             display: flex;
             align-items: center;
             justify-content: center;
             gap: 6px;
-            transition: transform 0.1s, opacity 0.15s;
-        }
-        .action-btn:active {
-            transform: scale(0.97);
-        }
-        .btn-chat {
-            background: linear-gradient(135deg, #0284c7, #2563eb);
-            color: #ffffff;
-            box-shadow: 0 4px 14px rgba(2, 132, 199, 0.35);
-        }
-        .btn-home {
-            background: rgba(51, 65, 85, 0.85);
-            color: #f1f5f9;
-            border: 1px solid rgba(255, 255, 255, 0.15);
-        }
-        .btn-home:hover {
-            background: rgba(71, 85, 105, 0.95);
+            transition: opacity 0.15s, transform 0.1s;
         }
 
-        /* Leaflet custom map canvas */
-        .leaflet-container {
-            background: #060a14 !important;
+        .btn-action:active { transform: scale(0.97); }
+        .btn-primary { background: var(--accent-gradient); color: #ffffff; }
+        .btn-secondary { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); }
+        .btn-full { grid-column: span 2; }
+
+        /* Bottom Tab Navigation Bar */
+        .bottom-nav {
+            height: var(--tab-height);
+            background-color: var(--bg-color);
+            border-top: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            justify-content: space-around;
+            z-index: 1000;
+            flex-shrink: 0;
         }
 
-        /* Drone markers matching image */
-        .drone-marker-wrap {
+        .nav-btn {
+            background: none;
+            border: none;
+            color: var(--text-muted);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 3px;
+            font-size: 11px;
+            font-weight: 600;
+            cursor: pointer;
+            flex: 1;
+            padding: 6px 0;
+            transition: color 0.12s;
+        }
+
+        .nav-btn .nav-icon {
+            font-size: 18px;
+        }
+
+        .nav-btn.active {
+            color: var(--accent);
+        }
+
+        /* Clean drone markers (NO big text badges!) */
+        .clean-drone-marker {
             position: relative;
             display: flex;
             align-items: center;
+            justify-content: center;
         }
-        .drone-core-dot {
+
+        .blip-core {
             width: 12px;
             height: 12px;
             border-radius: 50%;
             border: 2px solid #ffffff;
-            z-index: 20;
-        }
-        .radar-core {
-            background: #ef4444;
-            box-shadow: 0 0 10px #ef4444;
-        }
-        .prob-core {
-            background: #f59e0b;
-            box-shadow: 0 0 10px #f59e0b;
-        }
-        .drone-pulse-ring {
-            position: absolute;
-            width: 26px;
-            height: 26px;
-            left: -7px;
-            top: -7px;
-            border-radius: 50%;
-            animation: pulse-ring 1.5s infinite;
-            z-index: 10;
-        }
-        .radar-pulse-ring {
-            background: rgba(239, 68, 68, 0.35);
-        }
-        .prob-pulse-ring {
-            background: rgba(245, 158, 11, 0.30);
-        }
-        .drone-text-badge {
-            position: absolute;
-            left: 18px;
-            top: -6px;
-            background: rgba(22, 27, 46, 0.92);
-            color: #ffffff;
-            font-size: 10px;
-            font-weight: 700;
-            padding: 2px 7px;
-            border-radius: 5px;
-            white-space: nowrap;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.6);
-            z-index: 30;
-            pointer-events: none;
-        }
-        .radar-text-badge {
-            border: 1px solid #ef4444;
-            color: #fecaca;
-        }
-        .prob-text-badge {
-            border: 1px solid #f59e0b;
-            color: #fef3c7;
-        }
-        .target-cross-badge {
-            font-size: 11px;
-            font-weight: 800;
-            padding: 2px 5px;
-            border-radius: 4px;
-            background: rgba(22, 27, 46, 0.90);
-            pointer-events: none;
-            white-space: nowrap;
-        }
-        .radar-target-badge {
-            color: #fca5a5;
-            border: 1px solid rgba(244, 63, 94, 0.6);
-        }
-        .prob-target-badge {
-            color: #fde68a;
-            border: 1px solid rgba(251, 191, 36, 0.6);
+            box-shadow: 0 0 8px currentColor;
         }
 
-        /* Oblast center label */
-        .oblast-map-label {
-            color: #94a3b8;
+        .blip-pulse {
+            position: absolute;
+            width: 24px;
+            height: 24px;
+            border-radius: 50%;
+            animation: pulse-ring 1.4s infinite;
+            opacity: 0.4;
+        }
+
+        .blip-count {
+            position: absolute;
+            top: -7px;
+            right: -7px;
+            background: #111827;
+            color: #ffffff;
+            font-size: 9px;
+            font-weight: 800;
+            padding: 1px 4px;
+            border-radius: 6px;
+            border: 1px solid currentColor;
+        }
+
+        /* Oblast subtle labels */
+        .oblast-label {
+            color: #78909c;
             font-size: 11px;
             font-weight: 700;
-            letter-spacing: 0.3px;
-            text-shadow: 0 0 6px #000000, 0 0 3px #000000;
-            pointer-events: none;
+            text-shadow: 0 0 4px #000, 0 0 2px #000;
             white-space: nowrap;
-            opacity: 0.85;
+            pointer-events: none;
         }
     </style>
 </head>
 <body>
 
-    <!-- HUD Header -->
-    <div class="hud-header">
-        <div class="hud-title">
-            <div class="pulse-dot"></div>
-            <span>UKRAINE AIR DEFENSE LIVE</span>
-        </div>
-        <div class="hud-stats" id="hud-stats">
-            Радари: <span class="stat-badge stat-radar" id="stats-radar">0</span> |
-            Ймов: <span class="stat-badge stat-prob" id="stats-prob">0</span> |
-            Тривог: <span class="stat-badge stat-alarms" id="stats-alarms">0</span>
-        </div>
-    </div>
-
-    <!-- Map container -->
-    <div id="map"></div>
-
-    <!-- Bottom Detail Card -->
-    <div class="info-card" id="info-card">
-        <div class="card-header">
-            <div>
-                <div class="card-title" id="card-raion-name">Дністровський район</div>
-                <div class="card-subtitle" id="card-oblast-name">Чернівецька область</div>
+    <div id="app-container">
+        <!-- Top App Bar (BotFather Header Style) -->
+        <header class="app-header">
+            <div class="header-profile">
+                <div class="bot-avatar">A</div>
+                <div class="bot-meta">
+                    <div class="bot-name">
+                        <span>AirAlerts</span>
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="#2b98e8"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                    </div>
+                    <div class="bot-sub" id="header-status">137 районів • Онлайн</div>
+                </div>
             </div>
-            <button class="close-btn" onclick="closeCard()">✕</button>
+            <div class="live-chip">
+                <div class="pulse-mini"></div>
+                <span id="live-drones-count">0 БпЛА</span>
+            </div>
+        </header>
+
+        <!-- Search Bar -->
+        <div class="search-container">
+            <div class="search-box">
+                <span class="search-icon">🔍</span>
+                <input type="text" id="global-search" class="search-input" placeholder="Пошук області чи району..." oninput="onSearchInput()">
+            </div>
         </div>
-        <div id="card-status-container"></div>
-        <div class="eta-block" id="card-eta-text">
-            🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.
-        </div>
-        <div class="card-actions-row">
-            <button class="action-btn btn-chat" onclick="sendRaionToBot()">
-                💬 Показати в чаті
+
+        <!-- Main View Area -->
+        <main class="view-content">
+            <!-- TAB 1: Live Interactive Map -->
+            <div id="tab-map" class="tab-panel active">
+                <div class="map-legend-bar">
+                    <span style="color:#ef4444">🔴 Радар: <b id="stat-radar">0</b></span>
+                    <span style="color:#f97316">🟠 Ймов: <b id="stat-prob">0</b></span>
+                    <span style="color:#f87171">🚨 Тривог: <b id="stat-alarms">0</b></span>
+                    <span style="color:#90a4ae" id="stat-clock">...</span>
+                </div>
+                <div id="map"></div>
+            </div>
+
+            <!-- TAB 2: Raions & Oblasts (List View like BotFather Image 2) -->
+            <div id="tab-raions" class="tab-panel">
+                <div id="raions-list-container">
+                    <!-- Populated dynamically -->
+                </div>
+            </div>
+
+            <!-- TAB 3: My Home District -->
+            <div id="tab-home" class="tab-panel">
+                <div class="section-header">⭐ Мій закріплений район</div>
+                <div class="card-group" id="my-home-card-group">
+                    <div class="list-item" onclick="openHomeRaion()">
+                        <div class="item-avatar avatar-home">⭐</div>
+                        <div class="item-content">
+                            <div class="item-title" id="home-raion-title">Район не закріплено</div>
+                            <div class="item-subtitle" id="home-raion-sub">Оберіть район та натисніть «⭐ Зробити моїм районом»</div>
+                        </div>
+                        <div class="item-chevron">›</div>
+                    </div>
+                </div>
+
+                <div class="section-header">Швидкі дії</div>
+                <div class="card-group">
+                    <div class="list-item" onclick="switchTab('tab-raions')">
+                        <div class="item-avatar avatar-zone">📍</div>
+                        <div class="item-content">
+                            <div class="item-title">Обрати район зі списку</div>
+                            <div class="item-subtitle">Всі 26 областей та 137 районів</div>
+                        </div>
+                        <div class="item-chevron">›</div>
+                    </div>
+                    <div class="list-item" onclick="switchTab('tab-map')">
+                        <div class="item-avatar avatar-zone">🗺</div>
+                        <div class="item-content">
+                            <div class="item-title">Відкрити тактичну карту</div>
+                            <div class="item-subtitle">Повний огляд повітряної обстановки</div>
+                        </div>
+                        <div class="item-chevron">›</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- TAB 4: Subscriptions / Tracking -->
+            <div id="tab-subs" class="tab-panel">
+                <div class="section-header">🔔 Мої відстежувані райони</div>
+                <div class="card-group" id="subs-list-container">
+                    <div class="list-item">
+                        <div class="item-content">
+                            <div class="item-title" style="color:var(--text-muted)">Список підписок порожній</div>
+                            <div class="item-subtitle">Додавайте райони, щоб отримувати сповіщення</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Floating Detail Sheet for Selected Raion -->
+            <div id="detail-sheet" class="detail-sheet">
+                <div class="sheet-handle"></div>
+                <div class="sheet-header">
+                    <div>
+                        <div class="sheet-title" id="sheet-raion-name">Дністровський район</div>
+                        <div class="sheet-sub" id="sheet-oblast-name">Чернівецька область</div>
+                    </div>
+                    <button class="sheet-close-btn" onclick="closeDetailSheet()">✕</button>
+                </div>
+                <div id="sheet-status-pill-wrap"></div>
+                <div class="sheet-section" id="sheet-eta-box">
+                    ⏳ <i>Завантаження кінематики підльоту...</i>
+                </div>
+                <div class="sheet-actions">
+                    <button class="btn-action btn-primary btn-full" onclick="sendSheetRaionToBot()">
+                        💬 Показати в чаті Telegram
+                    </button>
+                    <button class="btn-action btn-secondary" id="btn-sheet-set-home" onclick="setSheetRaionAsHome()">
+                        ⭐ «Мій район»
+                    </button>
+                    <button class="btn-action btn-secondary" id="btn-sheet-toggle-sub" onclick="toggleSheetRaionSub()">
+                        🔔 Підписатися
+                    </button>
+                    <button class="btn-action btn-secondary btn-full" onclick="showSheetRaionOnMap()">
+                        🗺 Показати на мапі
+                    </button>
+                </div>
+            </div>
+        </main>
+
+        <!-- Bottom Tabs (Telegram Native Style) -->
+        <nav class="bottom-nav">
+            <button class="nav-btn active" id="btn-tab-map" onclick="switchTab('tab-map')">
+                <span class="nav-icon">🗺</span>
+                <span>Мапа</span>
             </button>
-            <button class="action-btn btn-home" onclick="setAsHomeRaion()">
-                ⭐ «Мій район»
+            <button class="nav-btn" id="btn-tab-raions" onclick="switchTab('tab-raions')">
+                <span class="nav-icon">📍</span>
+                <span>Райони</span>
             </button>
-        </div>
+            <button class="nav-btn" id="btn-tab-home" onclick="switchTab('tab-home')">
+                <span class="nav-icon">⭐</span>
+                <span>Мій район</span>
+            </button>
+            <button class="nav-btn" id="btn-tab-subs" onclick="switchTab('tab-subs')">
+                <span class="nav-icon">🔔</span>
+                <span>Підписки</span>
+            </button>
+        </nav>
     </div>
 
     <script>
         // Init Telegram WebApp
-        let tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+        const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+        let userChatId = null;
         if (tg) {
             tg.ready();
             tg.expand();
+            if (tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                userChatId = tg.initDataUnsafe.user.id;
+            }
         }
 
-        // Setup Leaflet map
+        // Ukraine map strict boundaries (Cannot pan outside Ukraine!)
+        const ukraineSouthWest = L.latLng(43.8, 21.5);
+        const ukraineNorthEast = L.latLng(52.8, 40.8);
+        const ukraineBounds = L.latLngBounds(ukraineSouthWest, ukraineNorthEast);
+
         const map = L.map('map', {
             zoomControl: false,
             attributionControl: false,
-            minZoom: 5,
-            maxZoom: 10
+            minZoom: 6,
+            maxZoom: 10,
+            maxBounds: ukraineBounds,
+            maxBoundsViscosity: 1.0 // Firm bounding wall!
         }).setView([48.6, 31.4], 6);
 
         L.control.zoom({ position: 'topright' }).addTo(map);
@@ -354,10 +667,13 @@
         let geojsonLayer = null;
         let dronesLayer = L.layerGroup().addTo(map);
         let oblastsLayer = L.layerGroup().addTo(map);
-        let selectedRaionName = null;
-        let threatsData = null;
 
-        // 25 Oblast center labels (matching alerts.in.ua)
+        let threatsData = null;
+        let regionsData = null;
+        let userData = { home_raion: null, subscriptions: [] };
+        let activeSelectedRaion = null;
+
+        // 25 Oblast center labels
         const OBLAST_CENTERS = [
             { name: "Київська", lat: 50.15, lon: 30.55 },
             { name: "Чернігівська", lat: 51.35, lon: 31.85 },
@@ -390,23 +706,39 @@
             oblastsLayer.clearLayers();
             OBLAST_CENTERS.forEach(ob => {
                 const icon = L.divIcon({
-                    className: 'oblast-map-label',
+                    className: 'oblast-label',
                     html: `<div>${ob.name}</div>`,
-                    iconSize: [80, 20],
-                    iconAnchor: [40, 10]
+                    iconSize: [80, 18],
+                    iconAnchor: [40, 9]
                 });
                 oblastsLayer.addLayer(L.marker([ob.lat, ob.lon], { icon: icon, interactive: false }));
             });
         }
         renderOblastLabels();
 
-        // Raion styling (matching Image 1 and Image 2)
+        // Switch Tabs
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+
+            const targetPanel = document.getElementById(tabId);
+            if (targetPanel) targetPanel.classList.add('active');
+
+            const targetBtn = document.getElementById(`btn-${tabId}`);
+            if (targetBtn) targetBtn.classList.add('active');
+
+            if (tabId === 'tab-map') {
+                setTimeout(() => map.invalidateSize(), 150);
+            }
+        }
+
+        // Raion Polygon Style
         function getRaionStyle(feature) {
             const rName = (feature.properties.rayon || '').toLowerCase().replace(' район', '').trim();
-            let fillColor = '#0a101d';
+            let fillColor = '#0f172a';
             let strokeColor = '#1e293b';
-            let fillOpacity = 0.78;
-            let weight = 0.9;
+            let fillOpacity = 0.75;
+            let weight = 0.8;
 
             if (threatsData && threatsData.raion_levels) {
                 const lvl = threatsData.raion_levels[rName];
@@ -414,16 +746,16 @@
                     fillColor = '#881337';
                     strokeColor = '#ef4444';
                     fillOpacity = 0.82;
-                    weight = 1.3;
+                    weight = 1.2;
                 } else if (lvl === 'YELLOW') {
                     fillColor = '#854d0e';
                     strokeColor = '#f59e0b';
                     fillOpacity = 0.78;
-                    weight = 1.2;
+                    weight = 1.1;
                 }
             }
 
-            if (selectedRaionName && selectedRaionName.toLowerCase().replace(' район', '').trim() === rName) {
+            if (activeSelectedRaion && activeSelectedRaion.toLowerCase().replace(' район', '').trim() === rName) {
                 strokeColor = '#38bdf8';
                 weight = 3.0;
                 fillOpacity = 0.90;
@@ -432,7 +764,6 @@
             return {
                 fillColor: fillColor,
                 weight: weight,
-                opacity: 1,
                 color: strokeColor,
                 fillOpacity: fillOpacity
             };
@@ -442,212 +773,219 @@
             layer.on({
                 click: function() {
                     const rName = feature.properties.rayon || 'Район';
-                    selectRaion(rName, feature, layer);
+                    openRaionDetail(rName, feature, layer);
                 },
                 mouseover: function(e) {
-                    const l = e.target;
-                    l.setStyle({ weight: 2.2, color: '#38bdf8' });
+                    e.target.setStyle({ weight: 2.2, color: '#38bdf8' });
                 },
                 mouseout: function(e) {
                     if (geojsonLayer) geojsonLayer.resetStyle(e.target);
-                    if (selectedRaionName) geojsonLayer.setStyle(getRaionStyle);
+                    if (activeSelectedRaion) geojsonLayer.setStyle(getRaionStyle);
                 }
             });
         }
 
-        function selectRaion(raionName, feature, layer) {
-            selectedRaionName = raionName;
+        // Open Detail Sheet for Raion
+        function openRaionDetail(raionName, feature, layer) {
+            activeSelectedRaion = raionName;
             if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
 
-            const card = document.getElementById('info-card');
-            document.getElementById('card-raion-name').innerText = raionName;
-            
+            const sheet = document.getElementById('detail-sheet');
+            document.getElementById('sheet-raion-name').innerText = raionName;
+
+            // Find region name
+            let oblastTitle = 'Україна';
+            if (feature && feature.properties && feature.properties.oblast) {
+                oblastTitle = feature.properties.oblast;
+            } else if (regionsData && regionsData.regions) {
+                for (const regKey in regionsData.regions) {
+                    const reg = regionsData.regions[regKey];
+                    if (reg.raions && reg.raions.includes(raionName)) {
+                        oblastTitle = reg.name;
+                        break;
+                    }
+                }
+            }
+            document.getElementById('sheet-oblast-name').innerText = oblastTitle;
+
             const cleanName = raionName.toLowerCase().replace(' район', '').trim();
             const lvl = (threatsData && threatsData.raion_levels) ? threatsData.raion_levels[cleanName] : 'CLEAR';
 
-            const statusContainer = document.getElementById('card-status-container');
+            const pillWrap = document.getElementById('sheet-status-pill-wrap');
             if (lvl === 'RED') {
-                statusContainer.innerHTML = '<span class="card-status-badge status-red">🔴 ОФІЦІЙНА ПОВІТРЯНА ТРИВОГА</span>';
+                pillWrap.innerHTML = '<span class="sheet-status-pill pill-red">🔴 ОФІЦІЙНА ПОВІТРЯНА ТРИВОГА</span>';
             } else if (lvl === 'YELLOW') {
-                statusContainer.innerHTML = '<span class="card-status-badge status-yellow">🟡 РАДАРНА ЗАГРОЗА / ДРОНИ ПОРУЧ</span>';
+                pillWrap.innerHTML = '<span class="sheet-status-pill pill-yellow">🟡 РАДАРНА ЗАГРОЗА (ДРОНИ ПОРУЧ)</span>';
             } else {
-                statusContainer.innerHTML = '<span class="card-status-badge status-clear">🟢 СПОКІЙНО (ТРИВОГИ НЕМАЄ)</span>';
+                pillWrap.innerHTML = '<span class="sheet-status-pill pill-clear">🟢 СПОКІЙНО (ТРИВОГИ НЕМАЄ)</span>';
             }
 
-            // Fetch live ETA calculation
-            const etaBlock = document.getElementById('card-eta-text');
-            etaBlock.innerHTML = '⏳ <i>Розрахунок кінематики підльоту...</i>';
-
+            // ETA fetch
+            const etaBox = document.getElementById('sheet-eta-box');
+            etaBox.innerHTML = '⏳ <i>Розрахунок кінематики підльоту цілей...</i>';
             fetch(`/api/eta?raion=${encodeURIComponent(raionName)}`)
                 .then(r => r.json())
                 .then(data => {
                     if (data && data.summary_text) {
                         let html = `<b>${data.summary_text}</b>`;
                         if (data.min_distance_km !== undefined && data.min_distance_km !== null) {
-                            html += `<br>📏 Дистанція до найближчої цілі: <b>${data.min_distance_km} км</b>`;
+                            html += `<br><span style="color:#94a3b8">📏 Дистанція до найближчої цілі:</span> <b>${data.min_distance_km} км</b>`;
                         }
-                        etaBlock.innerHTML = html;
+                        etaBox.innerHTML = html;
                     } else {
-                        etaBlock.innerHTML = '🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.';
+                        etaBox.innerHTML = '🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.';
                     }
                 })
                 .catch(() => {
-                    etaBlock.innerHTML = '🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.';
+                    etaBox.innerHTML = '🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.';
                 });
 
-            card.style.display = 'block';
+            // Update sub button label
+            updateSheetButtons(raionName);
+            sheet.style.display = 'block';
         }
 
-        function closeCard() {
-            document.getElementById('info-card').style.display = 'none';
-            selectedRaionName = null;
+        function updateSheetButtons(raionName) {
+            const btnSub = document.getElementById('btn-sheet-toggle-sub');
+            if (btnSub) {
+                const isSub = userData.subscriptions && userData.subscriptions.includes(raionName);
+                btnSub.innerHTML = isSub ? '🔕 Відписатися' : '🔔 Підписатися';
+            }
+        }
+
+        function closeDetailSheet() {
+            document.getElementById('detail-sheet').style.display = 'none';
+            activeSelectedRaion = null;
             if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
         }
 
-        // Two-way interaction: App -> Telegram Chat
-        function sendRaionToBot() {
-            if (!selectedRaionName) return;
-            if (tg) {
-                tg.sendData(JSON.stringify({ action: "select_raion", raion: selectedRaionName }));
-                tg.close();
-            } else {
-                alert(`Ви обрали: "${selectedRaionName}". Повідомлення передано боту.`);
-            }
-        }
+        function showSheetRaionOnMap() {
+            if (!activeSelectedRaion || !geojsonLayer) return;
+            switchTab('tab-map');
 
-        function setAsHomeRaion() {
-            if (!selectedRaionName) return;
-            if (tg) {
-                tg.sendData(JSON.stringify({ action: "set_home", raion: selectedRaionName }));
-                tg.close();
-            } else {
-                alert(`Район "${selectedRaionName}" збережено як «Мій район»!`);
-            }
-        }
-
-        // Render Drones Overlay (Exact Match with Image 1)
-        function updateDrones(data) {
-            dronesLayer.clearLayers();
-            if (!data) return;
-
-            const confirmed = data.confirmed_drones || (data.drones ? data.drones.filter(d => d.is_confirmed || d.lifecycle === 'confirmed') : []);
-            const probable = data.probable_drones || (data.drones ? data.drones.filter(d => !d.is_confirmed && d.lifecycle !== 'confirmed') : []);
-
-            // 1. Confirmed Drones (Solid Red & Solid line +1h)
-            confirmed.forEach(d => {
-                if (d.lat && d.lon) {
-                    const count = d.count || 1;
-                    const countStr = count > 1 ? ` x${count}` : '';
-                    
-                    const icon = L.divIcon({
-                        className: 'drone-custom-div',
-                        html: `
-                            <div class="drone-marker-wrap">
-                                <div class="drone-core-dot radar-core"></div>
-                                <div class="drone-pulse-ring radar-pulse-ring"></div>
-                                <div class="drone-text-badge radar-text-badge">БпЛА${countStr} (радар)</div>
-                            </div>
-                        `,
-                        iconSize: [12, 12],
-                        iconAnchor: [6, 6]
-                    });
-
-                    const marker = L.marker([d.lat, d.lon], { icon: icon });
-                    marker.bindPopup(`<b>🔴 БпЛА${countStr} (радар)</b><br>Курс: ${d.heading !== null && d.heading !== undefined ? d.heading + '°' : '—'}`);
-                    dronesLayer.addLayer(marker);
-
-                    // Solid Extrapolation Vector (+1h projection at 180 km/h)
-                    if (d.heading !== undefined && d.heading !== null) {
-                        const distKm = 140.0;
-                        const rad = d.heading * (Math.PI / 180.0);
-                        const dLat = (distKm * Math.cos(rad)) / 111.0;
-                        const dLon = (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
-                        const endPt = [d.lat + dLat, d.lon + dLon];
-
-                        // Flight vector line
-                        const line = L.polyline([[d.lat, d.lon], endPt], {
-                            color: '#f43f5e',
-                            weight: 2.2,
-                            opacity: 0.90
-                        });
-                        dronesLayer.addLayer(line);
-
-                        // Endpoint circle + Cross badge
-                        const endCircle = L.circle(endPt, {
-                            radius: 14000,
-                            color: '#f43f5e',
-                            fillColor: '#f43f5e',
-                            fillOpacity: 0.20,
-                            weight: 1
-                        });
-                        dronesLayer.addLayer(endCircle);
-
-                        const targetIcon = L.divIcon({
-                            className: 'target-custom-div',
-                            html: `<div class="target-cross-badge radar-target-badge">✕ +1г</div>`,
-                            iconSize: [40, 16],
-                            iconAnchor: [20, 8]
-                        });
-                        dronesLayer.addLayer(L.marker(endPt, { icon: targetIcon, interactive: false }));
-                    }
+            const cleanTarget = activeSelectedRaion.toLowerCase().replace(' район', '').trim();
+            geojsonLayer.eachLayer(layer => {
+                const rName = (layer.feature.properties.rayon || '').toLowerCase().replace(' район', '').trim();
+                if (rName === cleanTarget || rName.includes(cleanTarget)) {
+                    map.flyToBounds(layer.getBounds(), { maxZoom: 8, duration: 1.0 });
                 }
             });
+        }
 
-            // 2. Probable Drones (Amber & Dashed line +1h?)
-            probable.forEach(d => {
+        // Two-way actions
+        function sendSheetRaionToBot() {
+            if (!activeSelectedRaion) return;
+            if (tg) {
+                tg.sendData(JSON.stringify({ action: "select_raion", raion: activeSelectedRaion }));
+                tg.close();
+            } else {
+                alert(`Ви обрали: "${activeSelectedRaion}". Зведення надіслано боту.`);
+            }
+        }
+
+        function setSheetRaionAsHome() {
+            if (!activeSelectedRaion) return;
+            userData.home_raion = { raion: activeSelectedRaion };
+            updateHomeRaionUI();
+
+            if (userChatId) {
+                fetch('/api/set_home', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: userChatId, raion: activeSelectedRaion })
+                }).catch(() => {});
+            }
+
+            if (tg) {
+                tg.sendData(JSON.stringify({ action: "set_home", raion: activeSelectedRaion }));
+                tg.close();
+            } else {
+                alert(`⭐ «${activeSelectedRaion}» збережено як Мій район!`);
+            }
+        }
+
+        function toggleSheetRaionSub() {
+            if (!activeSelectedRaion) return;
+            const rName = activeSelectedRaion;
+            let isSub = userData.subscriptions.includes(rName);
+            if (isSub) {
+                userData.subscriptions = userData.subscriptions.filter(r => r !== rName);
+            } else {
+                userData.subscriptions.push(rName);
+            }
+            updateSheetButtons(rName);
+            renderSubscriptionsList();
+
+            if (userChatId) {
+                fetch('/api/toggle_sub', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: userChatId, raion: rName })
+                }).catch(() => {});
+            }
+        }
+
+        // Clean drone blips (Different colors, strictly bounded inside Ukraine!)
+        function updateDrones(dronesList) {
+            dronesLayer.clearLayers();
+            if (!dronesList) return;
+
+            dronesList.forEach(d => {
                 if (d.lat && d.lon) {
+                    const tier = d.tier || (d.is_confirmed ? "HIGH" : "MEDIUM");
+                    const color = d.color || (tier === "HIGH" ? "#ef4444" : (tier === "MEDIUM" ? "#f97316" : "#fbbf24"));
                     const count = d.count || 1;
-                    const countStr = count > 1 ? ` x${count}` : '';
-                    
+
+                    // Clean circular radar blip icon
                     const icon = L.divIcon({
-                        className: 'drone-custom-div',
+                        className: 'clean-drone-marker',
                         html: `
-                            <div class="drone-marker-wrap">
-                                <div class="drone-core-dot prob-core"></div>
-                                <div class="drone-pulse-ring prob-pulse-ring"></div>
-                                <div class="drone-text-badge prob-text-badge">БпЛА${countStr} (ймов.)</div>
-                            </div>
+                            <div class="blip-core" style="background:${color}; color:${color}"></div>
+                            <div class="blip-pulse" style="background:${color}"></div>
+                            ${count > 1 ? `<div class="blip-count" style="color:${color}">x${count}</div>` : ''}
                         `,
-                        iconSize: [12, 12],
-                        iconAnchor: [6, 6]
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
                     });
 
                     const marker = L.marker([d.lat, d.lon], { icon: icon });
-                    marker.bindPopup(`<b>🟡 Ймовірний БпЛА${countStr}</b><br>Курс: ${d.heading !== null && d.heading !== undefined ? d.heading + '°' : '—'}`);
+                    const tierTitle = tier === "HIGH" ? "🔴 Підтверджений БпЛА (радар)" : (tier === "MEDIUM" ? "🟠 Ймовірна група БпЛА" : "🟡 Поодинока ціль");
+                    marker.bindPopup(`
+                        <div style="font-family:sans-serif; font-size:12px; line-height:1.4">
+                            <b>${tierTitle}</b><br>
+                            🧭 Курс: <b>${d.heading !== null && d.heading !== undefined ? d.heading + '°' : '—'}</b><br>
+                            ⚡ Швидкість: <b>~${d.speed_kmh || 180} км/год</b>
+                        </div>
+                    `);
                     dronesLayer.addLayer(marker);
 
-                    // Dashed Extrapolation Vector (+1h? projection)
-                    if (d.heading !== undefined && d.heading !== null) {
-                        const distKm = 140.0;
+                    // Draw bounded directional arrow (MAX 35 km, NEVER leaves Ukraine bounds!)
+                    if (d.heading !== null && d.heading !== undefined) {
+                        const distKm = 35.0; // Short, clean vector length
                         const rad = d.heading * (Math.PI / 180.0);
-                        const dLat = (distKm * Math.cos(rad)) / 111.0;
-                        const dLon = (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
-                        const endPt = [d.lat + dLat, d.lon + dLon];
+                        let endLat = d.lat + (distKm * Math.cos(rad)) / 111.0;
+                        let endLon = d.lon + (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
 
-                        const line = L.polyline([[d.lat, d.lon], endPt], {
-                            color: '#fbbf24',
-                            weight: 2.0,
-                            dashArray: '5, 5',
-                            opacity: 0.85
+                        // CLAMP to Ukraine borders
+                        endLat = Math.max(44.2, Math.min(52.4, endLat));
+                        endLon = Math.max(22.0, Math.min(40.2, endLon));
+
+                        const line = L.polyline([[d.lat, d.lon], [endLat, endLon]], {
+                            color: color,
+                            weight: 2.2,
+                            opacity: 0.85,
+                            dashArray: tier === "HIGH" ? null : '4, 4'
                         });
                         dronesLayer.addLayer(line);
 
-                        const endCircle = L.circle(endPt, {
-                            radius: 12000,
-                            color: '#fbbf24',
-                            fillColor: '#fbbf24',
-                            fillOpacity: 0.16,
-                            weight: 1
+                        // Small arrow head circle at tip
+                        const tip = L.circleMarker([endLat, endLon], {
+                            radius: 2.5,
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 1
                         });
-                        dronesLayer.addLayer(endCircle);
-
-                        const targetIcon = L.divIcon({
-                            className: 'target-custom-div',
-                            html: `<div class="target-cross-badge prob-target-badge">✕ +1г?</div>`,
-                            iconSize: [42, 16],
-                            iconAnchor: [21, 8]
-                        });
-                        dronesLayer.addLayer(L.marker(endPt, { icon: targetIcon, interactive: false }));
+                        dronesLayer.addLayer(tip);
                     }
                 }
             });
@@ -659,42 +997,193 @@
                 .then(r => r.json())
                 .then(data => {
                     threatsData = data;
-                    document.getElementById('stats-radar').innerText = `${data.confirmed_count || 0} підтв.`;
-                    document.getElementById('stats-prob').innerText = `${data.probable_count || 0} ймов.`;
-                    document.getElementById('stats-alarms').innerText = `${data.active_alarms_count || 0} р-нів`;
+                    document.getElementById('live-drones-count').innerText = `${data.drones_count || 0} БпЛА`;
+                    document.getElementById('stat-radar').innerText = data.confirmed_count || 0;
+                    document.getElementById('stat-prob').innerText = data.probable_count || 0;
+                    document.getElementById('stat-alarms').innerText = data.active_alarms_count || 0;
+                    document.getElementById('stat-clock').innerText = new Date().toLocaleTimeString('uk-UA');
 
                     if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
-                    updateDrones(data);
+                    updateDrones(data.drones);
+                    renderRaionsList();
+                    updateHomeRaionUI();
                 })
                 .catch(e => console.log('Threats polling error', e));
         }
 
-        // Two-way interaction: Bot Message -> App Navigation via ?raion= parameter
-        function checkUrlParameters() {
-            const urlParams = new URLSearchParams(window.location.search);
-            const targetRaion = urlParams.get('raion') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param);
-            if (!targetRaion || !geojsonLayer) return;
+        // Fetch Regions and Build Tab 2 (BotFather Style List from Image 2)
+        function loadRegions() {
+            fetch('/api/regions')
+                .then(r => r.json())
+                .then(data => {
+                    regionsData = data;
+                    renderRaionsList();
+                })
+                .catch(() => {});
+        }
 
-            const cleanTarget = targetRaion.toLowerCase().replace(' район', '').trim();
-            let matchedLayer = null;
-            let matchedFeature = null;
+        function renderRaionsList(filterText = '') {
+            const container = document.getElementById('raions-list-container');
+            if (!container || !regionsData || !regionsData.regions) return;
 
-            geojsonLayer.eachLayer(layer => {
-                const rName = (layer.feature.properties.rayon || '').toLowerCase().replace(' район', '').trim();
-                if (rName === cleanTarget || rName.includes(cleanTarget) || cleanTarget.includes(rName)) {
-                    matchedLayer = layer;
-                    matchedFeature = layer.feature;
-                }
-            });
+            const q = filterText.toLowerCase().trim();
+            let html = '';
 
-            if (matchedLayer && matchedFeature) {
-                const rFullName = matchedFeature.properties.rayon || targetRaion;
-                map.flyToBounds(matchedLayer.getBounds(), { maxZoom: 8, duration: 1.2 });
-                selectRaion(rFullName, matchedFeature, matchedLayer);
+            for (const regKey in regionsData.regions) {
+                const reg = regionsData.regions[regKey];
+                const matchingRaions = (reg.raions || []).filter(rn => {
+                    if (!q) return true;
+                    return rn.toLowerCase().includes(q) || reg.name.toLowerCase().includes(q);
+                });
+
+                if (matchingRaions.length === 0) continue;
+
+                html += `<div class="section-header">${reg.name}</div>`;
+                html += `<div class="card-group">`;
+
+                matchingRaions.forEach(rn => {
+                    const clean = rn.toLowerCase().replace(' район', '').trim();
+                    const lvl = (threatsData && threatsData.raion_levels) ? threatsData.raion_levels[clean] : 'CLEAR';
+                    let avatarClass = 'avatar-green';
+                    let avatarIcon = '🟢';
+                    let statusText = 'Спокійно';
+
+                    if (lvl === 'RED') {
+                        avatarClass = 'avatar-red';
+                        avatarIcon = '🔴';
+                        statusText = 'ТРИВОГА';
+                    } else if (lvl === 'YELLOW') {
+                        avatarClass = 'avatar-orange';
+                        avatarIcon = '🟡';
+                        statusText = 'Небезпека (БпЛА)';
+                    }
+
+                    const escapedRn = rn.replace(/'/g, "\\'");
+                    html += `
+                        <div class="list-item" onclick="openRaionByName('${escapedRn}')">
+                            <div class="item-avatar ${avatarClass}">${avatarIcon}</div>
+                            <div class="item-content">
+                                <div class="item-title">${rn}</div>
+                                <div class="item-subtitle">${reg.name} • ${statusText}</div>
+                            </div>
+                            <div class="item-chevron">›</div>
+                        </div>
+                    `;
+                });
+
+                html += `</div>`;
+            }
+
+            container.innerHTML = html || '<div style="padding:24px; text-align:center; color:var(--text-muted)">Нічого не знайдено за запитом</div>';
+        }
+
+        function openRaionByName(raionName) {
+            openRaionDetail(raionName);
+        }
+
+        function openHomeRaion() {
+            if (userData.home_raion && userData.home_raion.raion) {
+                openRaionDetail(userData.home_raion.raion);
+            } else {
+                switchTab('tab-raions');
             }
         }
 
-        // Load GeoJSON Boundaries
+        function updateHomeRaionUI() {
+            if (userData.home_raion && userData.home_raion.raion) {
+                const hName = userData.home_raion.raion;
+                document.getElementById('home-raion-title').innerText = hName;
+                const clean = hName.toLowerCase().replace(' район', '').trim();
+                const lvl = (threatsData && threatsData.raion_levels) ? threatsData.raion_levels[clean] : 'CLEAR';
+                let lvlText = '🟢 Спокійно (тривоги немає)';
+                if (lvl === 'RED') lvlText = '🔴 ПОВІТРЯНА ТРИВОГА';
+                if (lvl === 'YELLOW') lvlText = '🟡 Радарна загроза (БпЛА)';
+                document.getElementById('home-raion-sub').innerText = lvlText;
+            }
+        }
+
+        function renderSubscriptionsList() {
+            const container = document.getElementById('subs-list-container');
+            if (!container) return;
+
+            if (!userData.subscriptions || userData.subscriptions.length === 0) {
+                container.innerHTML = `
+                    <div class="list-item">
+                        <div class="item-content">
+                            <div class="item-title" style="color:var(--text-muted)">Список підписок порожній</div>
+                            <div class="item-subtitle">Оберіть район у вкладці «Райони» та увімкніть дзвіночок</div>
+                        </div>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            userData.subscriptions.forEach(rn => {
+                const clean = rn.toLowerCase().replace(' район', '').trim();
+                const lvl = (threatsData && threatsData.raion_levels) ? threatsData.raion_levels[clean] : 'CLEAR';
+                let avatarClass = 'avatar-green';
+                let avatarIcon = '🟢';
+                let statusText = 'Спокійно';
+
+                if (lvl === 'RED') {
+                    avatarClass = 'avatar-red';
+                    avatarIcon = '🔴';
+                    statusText = 'ТРИВОГА';
+                } else if (lvl === 'YELLOW') {
+                    avatarClass = 'avatar-orange';
+                    avatarIcon = '🟡';
+                    statusText = 'Небезпека (БпЛА)';
+                }
+
+                const escapedRn = rn.replace(/'/g, "\\'");
+                html += `
+                    <div class="list-item" onclick="openRaionByName('${escapedRn}')">
+                        <div class="item-avatar ${avatarClass}">${avatarIcon}</div>
+                        <div class="item-content">
+                            <div class="item-title">${rn}</div>
+                            <div class="item-subtitle">${statusText}</div>
+                        </div>
+                        <div class="item-chevron">›</div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+
+        // Live Search Input handler
+        function onSearchInput() {
+            const val = document.getElementById('global-search').value;
+            if (val) {
+                switchTab('tab-raions');
+            }
+            renderRaionsList(val);
+        }
+
+        // Fetch User state (Sync with Bot's UserSubscriptionManager)
+        function loadUserData() {
+            if (!userChatId) return;
+            fetch(`/api/user?chat_id=${encodeURIComponent(userChatId)}`)
+                .then(r => r.json())
+                .then(data => {
+                    userData = data;
+                    updateHomeRaionUI();
+                    renderSubscriptionsList();
+                })
+                .catch(() => {});
+        }
+
+        // Handle URL parameter (?raion=...) for direct bot-to-app navigation
+        function checkUrlParameters() {
+            const urlParams = new URLSearchParams(window.location.search);
+            const targetRaion = urlParams.get('raion') || (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param);
+            if (!targetRaion) return;
+
+            openRaionDetail(targetRaion);
+            showSheetRaionOnMap();
+        }
+
+        // Load GeoJSON and Initialize
         fetch('/api/geojson')
             .then(r => r.json())
             .then(geojson => {
@@ -703,6 +1192,8 @@
                     onEachFeature: onEachFeature
                 }).addTo(map);
 
+                loadRegions();
+                loadUserData();
                 refreshThreats();
                 setInterval(refreshThreats, 15000);
                 setTimeout(checkUrlParameters, 400);
