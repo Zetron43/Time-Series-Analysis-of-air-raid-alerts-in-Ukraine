@@ -2326,6 +2326,30 @@ def run_live_polling(token: str):
                             except Exception:
                                 pass
 
+                    if payload.get("action") == "select_raion":
+                        r_name = payload.get("raion", "")
+                        raion_to_reg = {}
+                        for reg_k, reg_v in ALL_REGIONS.items():
+                            for rn in reg_v.get("raions", []):
+                                raion_to_reg[rn.lower()] = (reg_k, reg_v.get("name", reg_k))
+                        r_code, reg_title = raion_to_reg.get(r_name.lower(), ("kyiv_obl", "Київська область"))
+                        raions_list = ALL_REGIONS.get(r_code, {}).get("raions", [])
+                        r_idx = raions_list.index(r_name) if r_name in raions_list else 0
+
+                        res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
+                        reply_text = format_interactive_forecast_response(res)
+                        kb = get_raion_horizon_keyboard(r_code, r_idx)
+                        clear_prev_menu()
+                        s_res = telegram_api_call(token, "sendMessage", {
+                            "chat_id": chat_id,
+                            "text": reply_text,
+                            "parse_mode": "HTML",
+                            "reply_markup": kb,
+                        })
+                        if s_res.get("ok"):
+                            user_active_menu[cid_str] = s_res["result"]["message_id"]
+                        continue
+
                     if payload.get("action") == "set_home":
                         r_name = payload.get("raion", "")
                         raion_to_reg = {}
@@ -2336,27 +2360,30 @@ def run_live_polling(token: str):
                         sub_manager.set_home_raion(chat_id, r_name, region_code=r_code, region_name=reg_title)
                         sub_manager.add_subscription(chat_id, r_name)
 
+                        raions_list = ALL_REGIONS.get(r_code, {}).get("raions", [])
+                        r_idx = raions_list.index(r_name) if r_name in raions_list else 0
+                        res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
+                        formatted_msg = format_interactive_forecast_response(res)
+                        kb = get_raion_horizon_keyboard(r_code, r_idx)
+
                         reply_text = (
                             f"⭐ <b>Район «{r_name}» встановлено як ваш «Мій район»!</b>\n\n"
-                            f"📍 Тепер ви можете відкривати його оперативний статус в 1 клік з головного меню бота, "
-                            f"а також отримувати автоматичні сповіщення при будь-якій тривозі чи наближенні БпЛА.\n\n"
-                            f"🌅 Щоранку о 08:00 вам надходитиме персональний ранковий дайджест."
+                            f"📍 <b>Область:</b> {reg_title}\n"
+                            f"🔔 Автоматичне слідкування та раннє попередження активовано.\n"
+                            f"🌅 Щоранку о 08:00 вам надходитиме персональний дайджест безпеки.\n\n"
+                            f"📊 <b>Оперативний стан району:</b>\n\n"
+                            f"{formatted_msg}"
                         )
                         clear_prev_menu()
                         res = telegram_api_call(token, "sendMessage", {
                             "chat_id": chat_id,
                             "text": reply_text,
                             "parse_mode": "HTML",
-                            "reply_markup": {
-                                "inline_keyboard": [
-                                    [{"text": f"⭐ Відкрити {r_name}", "callback_data": "quick_home"}],
-                                    [{"text": "📍 Меню районів", "callback_data": "menu_zones"}],
-                                ]
-                            },
+                            "reply_markup": kb,
                         })
                         if res.get("ok"):
                             user_active_menu[cid_str] = res["result"]["message_id"]
-                    continue
+                        continue
 
                 # 3. Direct message command (/start, /forecast, /track, /map, /metrics, /home, /digest or region names)
                 elif "message" in u and "text" in u["message"]:
