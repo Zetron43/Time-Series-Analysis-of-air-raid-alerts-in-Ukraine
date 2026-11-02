@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="uk">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Жива Тактична Мапа Тривог та БпЛА</title>
+    <!-- Telegram WebApp SDK -->
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <!-- Leaflet CSS & JS -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+        * {
+            box-sizing: border-box;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+        body, html {
+            width: 100%;
+            height: 100%;
+            overflow: hidden;
+            background-color: #0b0f19;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            color: #f3f4f6;
+        }
+        #map {
+            width: 100%;
+            height: 100%;
+            background: #0b0f19;
+        }
+        /* Top HUD Bar */
+        .hud-header {
+            position: absolute;
+            top: 10px;
+            left: 12px;
+            right: 12px;
+            z-index: 1000;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(8px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            padding: 8px 14px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            box-shadow: 0 4px 18px rgba(0, 0, 0, 0.5);
+        }
+        .hud-title {
+            font-size: 13px;
+            font-weight: 700;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            color: #38bdf8;
+        }
+        .pulse-dot {
+            width: 8px;
+            height: 8px;
+            background-color: #ef4444;
+            border-radius: 50%;
+            animation: pulse-ring 1.5s infinite;
+        }
+        @keyframes pulse-ring {
+            0% { transform: scale(0.9); opacity: 0.8; }
+            50% { transform: scale(1.4); opacity: 0.3; }
+            100% { transform: scale(0.9); opacity: 0.8; }
+        }
+        .hud-stats {
+            font-size: 11px;
+            font-weight: 600;
+            color: #9ca3af;
+        }
+        .stat-badge {
+            color: #f87171;
+            font-weight: bold;
+        }
+
+        /* Floating Raion Info Card */
+        .info-card {
+            position: absolute;
+            bottom: 20px;
+            left: 12px;
+            right: 12px;
+            max-width: 440px;
+            margin: 0 auto;
+            z-index: 1000;
+            background: rgba(17, 24, 39, 0.94);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(56, 189, 248, 0.25);
+            border-radius: 16px;
+            padding: 14px 16px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.7);
+            display: none;
+            transition: all 0.25s ease-out;
+        }
+        .card-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
+        }
+        .card-title {
+            font-size: 16px;
+            font-weight: 800;
+            color: #ffffff;
+        }
+        .card-subtitle {
+            font-size: 12px;
+            color: #94a3b8;
+        }
+        .close-btn {
+            background: none;
+            border: none;
+            color: #64748b;
+            font-size: 18px;
+            cursor: pointer;
+            padding: 0 4px;
+        }
+        .card-status-badge {
+            display: inline-block;
+            font-size: 12px;
+            font-weight: 700;
+            padding: 4px 10px;
+            border-radius: 8px;
+            margin-top: 4px;
+            margin-bottom: 8px;
+        }
+        .status-red {
+            background: rgba(239, 68, 68, 0.2);
+            color: #ef4444;
+            border: 1px solid #ef4444;
+        }
+        .status-yellow {
+            background: rgba(234, 179, 8, 0.2);
+            color: #eab308;
+            border: 1px solid #eab308;
+        }
+        .status-clear {
+            background: rgba(34, 197, 94, 0.2);
+            color: #22c55e;
+            border: 1px solid #22c55e;
+        }
+        .eta-block {
+            background: rgba(30, 41, 59, 0.6);
+            border-radius: 10px;
+            padding: 8px 12px;
+            margin: 8px 0;
+            font-size: 12px;
+            line-height: 1.4;
+            color: #e2e8f0;
+            border-left: 3px solid #38bdf8;
+        }
+        .set-home-btn {
+            width: 100%;
+            background: linear-gradient(135deg, #0284c7, #2563eb);
+            color: white;
+            border: none;
+            border-radius: 10px;
+            padding: 9px 0;
+            font-weight: 700;
+            font-size: 13px;
+            cursor: pointer;
+            margin-top: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+        }
+        .set-home-btn:active {
+            transform: scale(0.98);
+        }
+
+        /* Leaflet custom overrides */
+        .leaflet-container {
+            background: #0b0f19 !important;
+        }
+        .custom-drone-icon {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        .drone-pulsing-marker {
+            width: 16px;
+            height: 16px;
+            background: #ef4444;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 0 12px #ef4444;
+            animation: pulse-ring 1.2s infinite;
+        }
+        .drone-prob-marker {
+            width: 14px;
+            height: 14px;
+            background: #eab308;
+            border: 2px solid #ffffff;
+            border-radius: 50%;
+            box-shadow: 0 0 10px #eab308;
+        }
+    </style>
+</head>
+<body>
+
+    <!-- HUD -->
+    <div class="hud-header">
+        <div class="hud-title">
+            <div class="pulse-dot"></div>
+            <span>UKRAINE AIR DEFENSE LIVE</span>
+        </div>
+        <div class="hud-stats" id="hud-stats">
+            Радари: <span class="stat-badge" id="stats-drones">0 БпЛА</span> | Оновлення: <span id="stats-time">...</span>
+        </div>
+    </div>
+
+    <!-- Map container -->
+    <div id="map"></div>
+
+    <!-- Info Bottom Card -->
+    <div class="info-card" id="info-card">
+        <div class="card-header">
+            <div>
+                <div class="card-title" id="card-raion-name">Дністровський район</div>
+                <div class="card-subtitle" id="card-oblast-name">Чернівецька область</div>
+            </div>
+            <button class="close-btn" onclick="closeCard()">✕</button>
+        </div>
+        <div id="card-status-container"></div>
+        <div class="eta-block" id="card-eta-text">
+            🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.
+        </div>
+        <button class="set-home-btn" id="btn-set-home" onclick="setAsHomeRaion()">
+            ⭐ Зберегти як «Мій район»
+        </button>
+    </div>
+
+    <script>
+        // Init Telegram WebApp
+        let tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
+        if (tg) {
+            tg.ready();
+            tg.expand();
+        }
+
+        // Setup Leaflet map
+        const map = L.map('map', {
+            zoomControl: false,
+            attributionControl: false,
+            minZoom: 5,
+            maxZoom: 10
+        }).setView([48.5, 31.2], 6);
+
+        L.control.zoom({ position: 'topright' }).addTo(map);
+
+        let geojsonLayer = null;
+        let dronesLayer = L.layerGroup().addTo(map);
+        let selectedRaionName = null;
+        let threatsData = null;
+
+        // Styles
+        function getRaionStyle(feature) {
+            const rName = (feature.properties.rayon || '').toLowerCase().replace(' район', '').trim();
+            let fillColor = '#111827';
+            let strokeColor = '#1f2937';
+            let fillOpacity = 0.85;
+            let weight = 0.8;
+
+            if (threatsData && threatsData.raion_levels) {
+                const lvl = threatsData.raion_levels[rName];
+                if (lvl === 'RED') {
+                    fillColor = '#b91c1c';
+                    strokeColor = '#ef4444';
+                    fillOpacity = 0.80;
+                    weight = 1.2;
+                } else if (lvl === 'YELLOW') {
+                    fillColor = '#ca8a04';
+                    strokeColor = '#eab308';
+                    fillOpacity = 0.75;
+                    weight = 1.1;
+                } else if (lvl === 'NOMINAL') {
+                    fillColor = '#4c0519';
+                    strokeColor = '#831843';
+                    fillOpacity = 0.65;
+                }
+            }
+
+            if (selectedRaionName && selectedRaionName.toLowerCase().includes(rName)) {
+                strokeColor = '#38bdf8';
+                weight = 2.5;
+            }
+
+            return {
+                fillColor: fillColor,
+                weight: weight,
+                opacity: 1,
+                color: strokeColor,
+                fillOpacity: fillOpacity
+            };
+        }
+
+        function onEachFeature(feature, layer) {
+            layer.on({
+                click: function() {
+                    const rName = feature.properties.rayon || 'Район';
+                    selectRaion(rName, feature);
+                }
+            });
+        }
+
+        function selectRaion(raionName, feature) {
+            selectedRaionName = raionName;
+            geojsonLayer.setStyle(getRaionStyle);
+
+            const card = document.getElementById('info-card');
+            document.getElementById('card-raion-name').innerText = raionName;
+            
+            const cleanName = raionName.toLowerCase().replace(' район', '').trim();
+            const lvl = (threatsData && threatsData.raion_levels) ? threatsData.raion_levels[cleanName] : 'CLEAR';
+
+            const statusContainer = document.getElementById('card-status-container');
+            if (lvl === 'RED') {
+                statusContainer.innerHTML = '<span class="card-status-badge status-red">🔴 ПОВІТРЯНА ТРИВОГА</span>';
+            } else if (lvl === 'YELLOW') {
+                statusContainer.innerHTML = '<span class="card-status-badge status-yellow">🟡 ЗАГРОЗА / ДРОНИ ПОРУЧ</span>';
+            } else {
+                statusContainer.innerHTML = '<span class="card-status-badge status-clear">🟢 СПОКІЙНО (ТРИВОГИ НЕМАЄ)</span>';
+            }
+
+            // Fetch live ETA for this raion
+            const etaBlock = document.getElementById('card-eta-text');
+            etaBlock.innerHTML = '⏳ <i>Розрахунок кінематики підльоту...</i>';
+
+            fetch(`/api/eta?raion=${encodeURIComponent(raionName)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data && data.summary_text) {
+                        let html = `<b>${data.summary_text}</b>`;
+                        if (data.min_distance_km) {
+                            html += `<br>📏 Дистанція: <b>${data.min_distance_km} км</b>`;
+                        }
+                        etaBlock.innerHTML = html;
+                    } else {
+                        etaBlock.innerHTML = '🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.';
+                    }
+                })
+                .catch(() => {
+                    etaBlock.innerHTML = '🟢 Прямих повітряних загроз на курсі до району наразі не виявлено.';
+                });
+
+            card.style.display = 'block';
+        }
+
+        function closeCard() {
+            document.getElementById('info-card').style.display = 'none';
+            selectedRaionName = null;
+            if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
+        }
+
+        function setAsHomeRaion() {
+            if (!selectedRaionName) return;
+            if (tg) {
+                tg.sendData(JSON.stringify({ action: "set_home", raion: selectedRaionName }));
+                tg.close();
+            } else {
+                alert(`Район "${selectedRaionName}" збережено як Мій район!`);
+            }
+        }
+
+        // Render Drones Overlay
+        function updateDrones(dronesList) {
+            dronesLayer.clearLayers();
+            if (!dronesList) return;
+
+            dronesList.forEach(d => {
+                if (d.lat && d.lon) {
+                    const isConf = d.is_confirmed || d.lifecycle === 'confirmed';
+                    const markerHtml = isConf
+                        ? '<div class="drone-pulsing-marker"></div>'
+                        : '<div class="drone-prob-marker"></div>';
+
+                    const icon = L.divIcon({
+                        className: 'custom-drone-icon',
+                        html: markerHtml,
+                        iconSize: [16, 16],
+                        iconAnchor: [8, 8]
+                    });
+
+                    const marker = L.marker([d.lat, d.lon], { icon: icon });
+                    marker.bindPopup(`<b>${isConf ? '🔴 БпЛА (радар)' : '🟡 Ймовірний БпЛА'}</b><br>Курс: ${d.heading || '—'}°`);
+                    dronesLayer.addLayer(marker);
+
+                    // Draw flight vector
+                    if (d.heading !== undefined && d.heading !== null) {
+                        const distKm = 30.0;
+                        const rad = d.heading * (Math.PI / 180.0);
+                        const dLat = (distKm * Math.cos(rad)) / 111.0;
+                        const dLon = (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
+                        const endPt = [d.lat + dLat, d.lon + dLon];
+
+                        const line = L.polyline([[d.lat, d.lon], endPt], {
+                            color: isConf ? '#f43f5e' : '#fbbf24',
+                            weight: 2,
+                            dashArray: isConf ? null : '4, 4',
+                            opacity: 0.8
+                        });
+                        dronesLayer.addLayer(line);
+                    }
+                }
+            });
+        }
+
+        // Polling loop
+        function refreshThreats() {
+            fetch('/api/threats')
+                .then(r => r.json())
+                .then(data => {
+                    threatsData = data;
+                    document.getElementById('stats-drones').innerText = `${data.drones_count || 0} БпЛА`;
+                    document.getElementById('stats-time').innerText = new Date().toLocaleTimeString('uk-UA');
+                    if (geojsonLayer) geojsonLayer.setStyle(getRaionStyle);
+                    updateDrones(data.drones);
+                })
+                .catch(e => console.log('Threats polling error', e));
+        }
+
+        // Load GeoJSON
+        fetch('/api/geojson')
+            .then(r => r.json())
+            .then(geojson => {
+                geojsonLayer = L.geoJSON(geojson, {
+                    style: getRaionStyle,
+                    onEachFeature: onEachFeature
+                }).addTo(map);
+
+                // Start polling once map is ready
+                refreshThreats();
+                setInterval(refreshThreats, 15000);
+            });
+    </script>
+</body>
+</html>

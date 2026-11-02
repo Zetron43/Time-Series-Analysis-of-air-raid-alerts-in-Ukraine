@@ -30,36 +30,48 @@ class AlertMapRenderer:
         horizon_minutes: int = 60,
         highlight_raion: Optional[str] = None,
         output_file: Optional[str] = None,
+        cached_snapshot: Optional[Dict[str, Any]] = None,
     ) -> bytes:
         """Renders live tactical map of Ukraine and returns PNG bytes."""
         now_kyiv = datetime.now(KYIV_TZ)
         now_str = now_kyiv.strftime("%H:%M:%S (%d.%m.%Y)")
         target_str = (now_kyiv + datetime.resolution * 0).strftime("%H:%M") # placeholder
 
-        # 1. Gather live data
-        alerts_client = AlertsInUaLiveClient()
-        neptun = NeptunClient()
-        dimap = DimapClient()
+        # 1. Gather live data (use warm in-memory cache if available, else fetch)
+        if cached_snapshot and cached_snapshot.get("is_warm"):
+            alerts_raions = cached_snapshot.get("alerts_raions", {})
+            classified = cached_snapshot.get("classified_drones", {})
+            confirmed_threats = classified.get("confirmed_threats", [])
+            probable_threats = classified.get("probable_threats", [])
+            confirmed_count = classified.get("confirmed_count", 0)
+            probable_count = classified.get("probable_count", 0)
+            total_drones = classified.get("total_count", 0)
+            nep_alerts = cached_snapshot.get("nep_alerts", {})
+            dimap_alerts = cached_snapshot.get("dimap_alerts", [])
+        else:
+            alerts_client = AlertsInUaLiveClient()
+            neptun = NeptunClient()
+            dimap = DimapClient()
 
-        # Ground-truth raion alerts from alerts.in.ua
-        alerts_raions = {}
-        try:
-            alerts_raions = alerts_client.get_all_raions_live_status()
-        except Exception:
-            pass
+            # Ground-truth raion alerts from alerts.in.ua
+            alerts_raions = {}
+            try:
+                alerts_raions = alerts_client.get_all_raions_live_status()
+            except Exception:
+                pass
 
-        # Classified drones from Neptun (radar verified vs probable/acoustic)
-        threats = neptun.get_threats()
-        classified = neptun.classify_drones(threats)
-        confirmed_threats = classified["confirmed_threats"]
-        probable_threats = classified["probable_threats"]
-        confirmed_count = classified["confirmed_count"]
-        probable_count = classified["probable_count"]
-        total_drones = classified["total_count"]
+            # Classified drones from Neptun (radar verified vs probable/acoustic)
+            threats = neptun.get_threats()
+            classified = neptun.classify_drones(threats)
+            confirmed_threats = classified["confirmed_threats"]
+            probable_threats = classified["probable_threats"]
+            confirmed_count = classified["confirmed_count"]
+            probable_count = classified["probable_count"]
+            total_drones = classified["total_count"]
 
-        # Radar and crowdsourced raion alerts
-        nep_alerts = neptun.get_alerts()
-        dimap_alerts = dimap.get_alerts()
+            # Radar and crowdsourced raion alerts
+            nep_alerts = neptun.get_alerts()
+            dimap_alerts = dimap.get_alerts()
 
         # Build independent raion status dictionary
         raion_levels: Dict[str, str] = {}

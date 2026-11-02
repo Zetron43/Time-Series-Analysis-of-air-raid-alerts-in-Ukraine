@@ -675,6 +675,12 @@ class ThreatAnalyzer:
         self.live_client = AlertsInUaLiveClient(cache_ttl_seconds=15)
         self.neptun_client = NeptunClient(cache_ttl=20)
         self.dimap_client = DimapClient(cache_ttl=20)
+        self.threat_syncer = None
+        try:
+            from src.bot.threat_state_manager import get_threat_syncer
+            self.threat_syncer = get_threat_syncer()
+        except Exception:
+            pass
         self.neighbors_map = {}
         if RAION_NEIGHBORS_PATH.exists():
             try:
@@ -828,11 +834,27 @@ class ThreatAnalyzer:
         classified_local = self.neptun_client.classify_drones(local_uavs)
         countrywide_drones = self.neptun_client.classify_drones()
 
+        # 4. Kinematic approach and ETA calculation
+        eta_info = None
+        if raion_name:
+            if self.threat_syncer:
+                try:
+                    eta_info = self.threat_syncer.get_raion_eta_analysis(raion_name)
+                except Exception:
+                    pass
+            if not eta_info:
+                try:
+                    from src.bot.eta_calculator import KinematicETACalculator
+                    eta_info = KinematicETACalculator().calculate_eta_for_raion(raion_name, live_status.get("threats", []))
+                except Exception:
+                    pass
+
         return {
             "region_code": region_code,
             "region_name": region_name,
             "raion_name": raion_name,
             "raion_item": raion_item,
+            "eta_info": eta_info,
             "is_official_alarm": is_official_alarm,
             "has_radar_warning": has_radar_warning,
             "neighbors_alarms": neighbors_alarms,
@@ -948,6 +970,17 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
 
         if country_drones and country_drones.get("total_count", 0) > 0:
             lines.append(f"🌍 <i>По Україні загалом: {country_drones['total_count']} БпЛА ({country_drones['confirmed_count']} підтверджено, {country_drones['probable_count']} ймовірних)</i>")
+
+        # Kinematic ETA block
+        eta_info = data.get("eta_info")
+        if eta_info and eta_info.get("summary_text"):
+            lines.extend([
+                "",
+                "⏱ <b>КІНЕМАТИКА ТА ОРІЄНТОВНИЙ ПІДЛІТ (ETA):</b>",
+                f"{eta_info['summary_text']}",
+            ])
+            if eta_info.get("min_distance_km") is not None and eta_info.get("has_direct_threat"):
+                lines.append(f"📏 Дистанція до найближчої цілі: <b>{eta_info['min_distance_km']} км</b>")
 
         if is_official:
             prob_title = "Ймовірність продовження тривоги в районі"
@@ -1223,9 +1256,34 @@ def format_region_selection_overview(region_code: str) -> str:
     return "\n".join(lines)
 
 
-def get_macro_zones_keyboard() -> dict:
-    """Builds Telegram Inline Keyboard for Macro-Zones selection."""
-    keyboard = [
+def get_macro_zones_keyboard(chat_id: Optional[int | str] = None, sub_manager: Optional[UserSubscriptionManager] = None) -> dict:
+    """Builds Telegram Inline Keyboard for Macro-Zones selection with Home Raion & WebApp."""
+    keyboard = []
+
+    # 1. Pinned Home Raion Button (if user configured one)
+    if chat_id and sub_manager:
+        home_meta = sub_manager.get_home_raion(chat_id)
+        if home_meta and home_meta.get("raion"):
+            r_name = home_meta["raion"]
+            lvl_badge = "🟢"
+            try:
+                from src.bot.threat_state_manager import get_threat_syncer
+                st = get_threat_syncer().get_raion_status(r_name)
+                lvl_badge = "🔴" if st.get("level") == "RED" else ("🟡" if st.get("level") == "YELLOW" else "🟢")
+            except Exception:
+                pass
+            keyboard.append([
+                {"text": f"⭐ Мій район: {r_name} ({lvl_badge})", "callback_data": "quick_home"},
+            ])
+
+    # 2. Interactive WebApp Button
+    webapp_url = os.environ.get("WEBAPP_URL")
+    if webapp_url:
+        keyboard.append([
+            {"text": "📱 Відкрити живу інтерактивну мапу", "web_app": {"url": webapp_url}},
+        ])
+
+    keyboard.extend([
         [
             {"text": "🏙 Столиця та Північ", "callback_data": "zone_north"},
             {"text": "🧭 Схід України", "callback_data": "zone_east"},
@@ -1238,7 +1296,7 @@ def get_macro_zones_keyboard() -> dict:
             {"text": "🧭 Захід України", "callback_data": "zone_west"},
             {"text": "🗺 Усі області (А-Я)", "callback_data": "zone_all"},
         ],
-    ]
+    ])
     return {"inline_keyboard": keyboard}
 
 
@@ -1371,11 +1429,11 @@ def get_raion_horizon_keyboard(region_code: str, raion_idx: int) -> dict:
         ],
         [
             {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_15m"},
-            {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{region_code}_{raion_idx}"},
+            {"text": "⭐ Зробити моїм районом", "callback_data": f"sethome_{region_code}_{raion_idx}"},
         ],
         [
+            {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{region_code}_{raion_idx}"},
             {"text": "⬅️ Назад до районів", "callback_data": f"reg_{region_code}"},
-            {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
         ],
     ]
     return {"inline_keyboard": keyboard}
@@ -1395,11 +1453,11 @@ def get_forecast_action_keyboard(
             ],
             [
                 {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_{horizon_code}"},
-                {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{region_code}_{raion_idx}"},
+                {"text": "⭐ Зробити моїм районом", "callback_data": f"sethome_{region_code}_{raion_idx}"},
             ],
             [
+                {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{region_code}_{raion_idx}"},
                 {"text": "⏱ Інший час", "callback_data": f"rn_{region_code}_{raion_idx}"},
-                {"text": "🏘 До районів", "callback_data": f"reg_{region_code}"},
             ],
             [{"text": "📍 Змінити область", "callback_data": "menu_zones"}],
         ]
@@ -1615,6 +1673,75 @@ def send_telegram_photo(
         return {"ok": False, "description": str(exc)}
 
 
+def send_daily_digest(
+    token: str,
+    sub_manager: UserSubscriptionManager,
+    threat_syncer=None,
+    target_chat_id: Optional[int | str] = None,
+) -> None:
+    """Builds and sends a concise morning safety digest (at 08:00 or on /digest command)."""
+    if threat_syncer is None:
+        try:
+            from src.bot.threat_state_manager import get_threat_syncer
+            threat_syncer = get_threat_syncer()
+        except Exception:
+            threat_syncer = None
+
+    now_kyiv = datetime.now(KYIV_TZ)
+    snap = threat_syncer.state.get_snapshot() if (threat_syncer and hasattr(threat_syncer, "state")) else {}
+    raw_threats = snap.get("raw_threats", []) if snap else []
+    alerts_raions = snap.get("alerts_raions", {}) if snap else {}
+    active_alarms = sum(1 for _, info in alerts_raions.items() if info.get("active"))
+    total_drones = len(raw_threats)
+
+    recipients = [str(target_chat_id)] if target_chat_id else list(sub_manager.get_all_subscriptions().keys())
+
+    # Include any users who configured home raion
+    all_subs_data = sub_manager.get_all_subscriptions()
+    for h_cid, h_meta in all_subs_data.items():
+        if h_meta.get("home_raion") and h_cid not in recipients and not target_chat_id:
+            recipients.append(h_cid)
+
+    for cid in recipients:
+        if not cid:
+            continue
+        home = sub_manager.get_home_raion(cid)
+        subs = sub_manager.get_user_subscriptions(cid)
+
+        lines = [
+            "🌅 <b>РАНКОВИЙ ДАЙДЖЕСТ БЕЗПЕКИ (08:00)</b>",
+            f"📅 <i>{now_kyiv.strftime('%d.%m.%Y, %H:%M')}</i>\n",
+            "📡 <b>Загальна оперативна обстановка в Україні:</b>",
+            f"• Районів з активними сиренами: <b>{active_alarms}</b>",
+            f"• Зафіксовано цілей (БпЛА) у повітрі: <b>{total_drones}</b>\n",
+        ]
+
+        if home and home.get("raion"):
+            h_name = home["raion"]
+            st = threat_syncer.get_raion_status(h_name) if threat_syncer else {}
+            lvl = st.get("level", "CLEAR")
+            b = "🔴 ТРИВОГА" if lvl == "RED" else ("🟡 ПІДВИЩЕНА НЕБЕЗПЕКА" if lvl == "YELLOW" else "🟢 СПОКІЙНО")
+            lines.append(f"⭐ <b>Ваш домашній район:</b> {h_name} — {b}")
+
+        if subs:
+            lines.append("🔔 <b>Підписки:</b> " + ", ".join(subs[:6]))
+
+        lines.append("\n🛡 <i>Бажаємо спокійного та безпечного дня! Бот на варті 24/7.</i>")
+        d_text = "\n".join(lines)
+        kb = {
+            "inline_keyboard": [
+                [{"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"}],
+                [{"text": "📍 Меню районів", "callback_data": "menu_zones"}],
+            ]
+        }
+        telegram_api_call(token, "sendMessage", {
+            "chat_id": cid,
+            "text": d_text,
+            "parse_mode": "HTML",
+            "reply_markup": kb,
+        })
+
+
 def run_subscriptions_watcher(
     token: str,
     stop_event: threading.Event,
@@ -1629,6 +1756,7 @@ def run_subscriptions_watcher(
     if delete_mgr is None:
         delete_mgr = AutoDeleteManager()
     analyzer = ThreatAnalyzer()
+    last_digest_date = ""
 
     # Pre-map raions to region_codes
     raion_to_region = {}
@@ -1642,6 +1770,18 @@ def run_subscriptions_watcher(
             deleted = delete_mgr.process_pending(lambda method, payload: telegram_api_call(token, method, payload))
             if deleted > 0:
                 print(f"[+] Автоматично видалено {deleted} застарілих повідомлень тривоги (1-годинний таймер).", flush=True)
+
+            # Daily Morning Digest at 08:00 (between 08:00 and 08:10)
+            now_kyiv = datetime.now(KYIV_TZ)
+            today_str = now_kyiv.strftime("%Y-%m-%d")
+            if now_kyiv.hour == 8 and now_kyiv.minute <= 10 and last_digest_date != today_str:
+                last_digest_date = today_str
+                try:
+                    from src.bot.threat_state_manager import get_threat_syncer
+                    send_daily_digest(token, sub_manager, get_threat_syncer())
+                    print(f"[+] Ранковий дайджест о 08:00 успішно надіслано підписникам.", flush=True)
+                except Exception as d_exc:
+                    print(f"[-] Помилка розсилки ранкового дайджесту: {d_exc}", flush=True)
 
             all_subs = sub_manager.get_all_subscriptions()
             if not all_subs:
@@ -1723,12 +1863,15 @@ def run_subscriptions_watcher(
                                 h_str = f" з курсом {int(heading)}°" if heading is not None else ""
                                 drone_info_str = f"\n🛸 <b>Радари Neptun:</b> зафіксовано {len(local_drones)} ціль(ей){h_str} у напрямку району."
 
+                            eta_info = res.get("eta_info")
+                            eta_str = f"\n⏱ <b>Орієнтовний підліт (ETA):</b> {eta_info['summary_text']}\n" if (eta_info and eta_info.get("summary_text")) else ""
+
                             warn_msg = (
                                 f"⚠️ <b>РАННЄ ПОПЕРЕДЖЕННЯ: ЗАГРОЗА ДЛЯ ВАШОГО РАЙОНУ!</b>\n\n"
                                 f"📍 <b>Район:</b> {raion_name} ({res['region_name']})\n"
                                 f"🕒 <b>Час фіксації:</b> {now_str}\n"
                                 f"📡 <b>Статус:</b> 🟡 <b>Превентивна загроза</b> (сирени в районі ще <u>НЕ лунають</u>!)\n"
-                                f"⚠️ <b>Рівень небезпеки:</b> {lvl_badge}{drone_info_str}\n\n"
+                                f"⚠️ <b>Рівень небезпеки:</b> {lvl_badge}{drone_info_str}{eta_str}\n\n"
                                 f"📊 <b>Ризик оголошення тривоги / підльоту:</b> <b>{res['overall_probability']*100:.1f}%</b>\n"
                                 f"💡 <i>{res['prob_explanation']}</i>\n\n"
                                 f"⚠️ <i>Будьте напоготові, слідкуйте за офіційними сигналами та перевірте найближче укриття!</i>\n\n"
@@ -1983,6 +2126,15 @@ def run_live_polling(token: str):
     sub_manager = UserSubscriptionManager()
     delete_mgr = AutoDeleteManager()
     ai_agent = AirRaidAIAgent()
+    from src.bot.threat_state_manager import get_threat_syncer
+    threat_syncer = get_threat_syncer()
+    threat_syncer.start()
+    try:
+        from src.bot.webapp_server import WebAppServer
+        webapp_server = WebAppServer()
+        webapp_server.start()
+    except Exception as e:
+        print(f"[-] WebAppServer notice: {e}", flush=True)
     user_active_menu: Dict[str, int] = {}
     offset = 0
 
@@ -2036,8 +2188,121 @@ def run_live_polling(token: str):
             for u in updates.get("result", []):
                 offset = u["update_id"] + 1
 
-                # 1. Direct message command (/start, /forecast, /track, /map, /metrics, or region names)
-                if "message" in u and "text" in u["message"]:
+                # 1. Voice and Audio Notes (Multimodal query to Gemini)
+                if "message" in u and ("voice" in u["message"] or "audio" in u["message"]):
+                    chat_id = u["message"]["chat"]["id"]
+                    cid_str = str(chat_id)
+                    user_name = u["message"].get("from", {}).get("first_name", "Користувач")
+                    v_obj = u["message"].get("voice") or u["message"].get("audio")
+                    file_id = v_obj.get("file_id")
+                    mime_type = v_obj.get("mime_type", "audio/ogg")
+                    duration = v_obj.get("duration", 0)
+                    print(f"[>] Голосове повідомлення від {user_name} ({duration} сек, file_id={file_id[:12]}...)", flush=True)
+
+                    def clear_prev_menu():
+                        prev_mid = user_active_menu.get(cid_str)
+                        if prev_mid:
+                            try:
+                                telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": prev_mid})
+                            except Exception:
+                                pass
+
+                    telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "record_voice"})
+
+                    f_info = telegram_api_call(token, "getFile", {"file_id": file_id})
+                    if f_info.get("ok") and "file_path" in f_info.get("result", {}):
+                        file_path = f_info["result"]["file_path"]
+                        download_url = f"https://api.telegram.org/file/bot{token}/{file_path}"
+                        try:
+                            req = urllib.request.Request(download_url)
+                            with urllib.request.urlopen(req, timeout=30) as resp:
+                                audio_bytes = resp.read()
+
+                            telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "typing"})
+                            ai_reply = ai_agent.answer_voice_query(audio_bytes, mime_type=mime_type, chat_id=str(chat_id))
+                        except Exception as v_err:
+                            print(f"[-] Error processing voice note: {v_err}", flush=True)
+                            ai_reply = f"⚠️ Помилка завантаження чи обробки аудіо: {v_err}"
+                    else:
+                        ai_reply = "⚠️ Не вдалося отримати голосовий файл від серверів Telegram. Спробуйте ще раз."
+
+                    clear_prev_menu()
+                    ai_reply_menu = {
+                        "inline_keyboard": [
+                            [
+                                {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"},
+                                {"text": "📍 Меню районів", "callback_data": "menu_zones"},
+                            ]
+                        ]
+                    }
+                    res = telegram_api_call(token, "sendMessage", {
+                        "chat_id": chat_id,
+                        "text": ai_reply,
+                        "parse_mode": "HTML",
+                        "reply_markup": ai_reply_menu,
+                    })
+                    if not res.get("ok"):
+                        res = telegram_api_call(token, "sendMessage", {
+                            "chat_id": chat_id,
+                            "text": ai_reply,
+                            "reply_markup": ai_reply_menu,
+                        })
+                    if res.get("ok"):
+                        user_active_menu[cid_str] = res["result"]["message_id"]
+                    continue
+
+                # 2. Telegram Mini App Data Return (sendData from WebApp)
+                elif "message" in u and "web_app_data" in u["message"]:
+                    chat_id = u["message"]["chat"]["id"]
+                    cid_str = str(chat_id)
+                    w_data = u["message"]["web_app_data"].get("data", "")
+                    try:
+                        payload = json.loads(w_data)
+                    except Exception:
+                        payload = {}
+
+                    def clear_prev_menu():
+                        prev_mid = user_active_menu.get(cid_str)
+                        if prev_mid:
+                            try:
+                                telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": prev_mid})
+                            except Exception:
+                                pass
+
+                    if payload.get("action") == "set_home":
+                        r_name = payload.get("raion", "")
+                        raion_to_reg = {}
+                        for reg_k, reg_v in ALL_REGIONS.items():
+                            for rn in reg_v.get("raions", []):
+                                raion_to_reg[rn.lower()] = (reg_k, reg_v.get("name", reg_k))
+                        r_code, reg_title = raion_to_reg.get(r_name.lower(), ("kyiv_obl", "Київська область"))
+                        sub_manager.set_home_raion(chat_id, r_name, region_code=r_code, region_name=reg_title)
+                        sub_manager.add_subscription(chat_id, r_name)
+
+                        reply_text = (
+                            f"⭐ <b>Район «{r_name}» встановлено як ваш «Мій район»!</b>\n\n"
+                            f"📍 Тепер ви можете відкривати його оперативний статус в 1 клік з головного меню бота, "
+                            f"а також отримувати автоматичні сповіщення при будь-якій тривозі чи наближенні БпЛА.\n\n"
+                            f"🌅 Щоранку о 08:00 вам надходитиме персональний ранковий дайджест."
+                        )
+                        clear_prev_menu()
+                        res = telegram_api_call(token, "sendMessage", {
+                            "chat_id": chat_id,
+                            "text": reply_text,
+                            "parse_mode": "HTML",
+                            "reply_markup": {
+                                "inline_keyboard": [
+                                    [{"text": f"⭐ Відкрити {r_name}", "callback_data": "quick_home"}],
+                                    [{"text": "📍 Меню районів", "callback_data": "menu_zones"}],
+                                ]
+                            },
+                        })
+                        if res.get("ok"):
+                            user_active_menu[cid_str] = res["result"]["message_id"]
+                    continue
+
+                # 3. Direct message command (/start, /forecast, /track, /map, /metrics, /home, /digest or region names)
+                elif "message" in u and "text" in u["message"]:
                     chat_id = u["message"]["chat"]["id"]
                     cid_str = str(chat_id)
                     text = u["message"]["text"].strip()
@@ -2066,6 +2331,49 @@ def run_live_polling(token: str):
                             user_active_menu[cid_str] = res["result"]["message_id"]
                         continue
 
+                    # Command: Morning Digest on demand
+                    if text in ["/digest", "/дайджест", "🌅 Дайджест", "дайджест"]:
+                        clear_prev_menu()
+                        send_daily_digest(token, sub_manager, threat_syncer, target_chat_id=chat_id)
+                        continue
+
+                    # Command: Home Raion Quick Access
+                    if text in ["/home", "/дом", "⭐ Мій район", "мій район"]:
+                        home_meta = sub_manager.get_home_raion(chat_id)
+                        clear_prev_menu()
+                        if home_meta and home_meta.get("raion"):
+                            r_name = home_meta["raion"]
+                            r_code = home_meta.get("region_code")
+                            if not r_code:
+                                raion_to_reg = {}
+                                for reg_k, reg_v in ALL_REGIONS.items():
+                                    for rn in reg_v.get("raions", []):
+                                        raion_to_reg[rn.lower()] = reg_k
+                                r_code = raion_to_reg.get(r_name.lower(), "kyiv_obl")
+                            raions_list = ALL_REGIONS.get(r_code, {}).get("raions", [])
+                            r_idx = raions_list.index(r_name) if r_name in raions_list else 0
+                            res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
+                            formatted_msg = format_interactive_forecast_response(res)
+                            kb = get_raion_horizon_keyboard(r_code, r_idx)
+                            s_res = telegram_api_call(token, "sendMessage", {
+                                "chat_id": chat_id,
+                                "text": formatted_msg,
+                                "parse_mode": "HTML",
+                                "reply_markup": kb,
+                            })
+                            if s_res.get("ok"):
+                                user_active_menu[cid_str] = s_res["result"]["message_id"]
+                        else:
+                            s_res = telegram_api_call(token, "sendMessage", {
+                                "chat_id": chat_id,
+                                "text": "⭐ <b>Ви ще не закріпили свій домашній район.</b>\n\nОберіть область, район та натисніть кнопку <i>'⭐ Зробити моїм районом'</i>, або скористайтеся картою.",
+                                "parse_mode": "HTML",
+                                "reply_markup": get_macro_zones_keyboard(chat_id=chat_id, sub_manager=sub_manager),
+                            })
+                            if s_res.get("ok"):
+                                user_active_menu[cid_str] = s_res["result"]["message_id"]
+                        continue
+
                     # Command: Live Tactical Map
                     if text.startswith("/map") or text.startswith("/карта"):
                         parts = text.split()
@@ -2078,10 +2386,10 @@ def run_live_polling(token: str):
                                 hor_mins = int(h_arg)
 
                         telegram_api_call(token, "sendChatAction", {"chat_id": chat_id, "action": "upload_photo"})
-                        map_bytes = renderer.render_map(horizon_minutes=hor_mins)
+                        map_bytes = threat_syncer.get_tactical_map_bytes(horizon_minutes=hor_mins)
                         caption = build_map_caption(hor_mins)
                         clear_prev_menu()
-                        p_res = send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=get_macro_zones_keyboard())
+                        p_res = send_telegram_photo(token, chat_id, map_bytes, caption=caption, reply_markup=get_macro_zones_keyboard(chat_id=chat_id, sub_manager=sub_manager))
                         if p_res.get("ok"):
                             user_active_menu[cid_str] = p_res["result"]["message_id"]
                         continue
@@ -2134,24 +2442,39 @@ def run_live_polling(token: str):
                             "📡 <b>Синхронізовано з alerts.in.ua, neptun.in.ua, dimap.live, @kpszsu та @war_monitor.</b>\n\n"
                             "🎯 <b>Доступні можливості:</b>\n"
                             "• 🏘 <b>Поділ на всі райони:</b> оберіть область і перегляньте детальний стан свого району\n"
+                            "• ⭐ <b>Мій район:</b> закріпіть свій район для доступу в 1 клік\n"
                             "• 🔔 <b>Цілодобове слідкування:</b> раннє попередження при тривозі у сусідніх районах чи русі БпЛА\n"
+                            "• ⏳ <b>Кінематичний підліт (ETA):</b> точний розрахунок часу наближення за курсом і швидкістю\n"
                             "• 🗺 <b>Тактична карта України:</b> райони з червоними й жовтими рівнями та вектори руху дронів\n"
-                            "• 🤖 <b>ШІ-Агент 'Вартовий Неба':</b> напишіть будь-яке запитання звичайними словами\n\n"
-                            "📍 <b>Оберіть макрорегіон для перегляду районів:</b>"
+                            "• 🎤 <b>Голосові запити:</b> надішліть голосове повідомлення, ШІ 'Вартовий Неба' дасть точну відповідь\n"
+                            "• 🌅 <b>Ранковий дайджест:</b> щоранку о 08:00 зведення по вашому району та країні\n\n"
+                            "📍 <b>Оберіть дію або макрорегіон:</b>"
                         )
-                        quick_menu = {
-                            "inline_keyboard": [
-                                [{"text": "📍 Обрати область та район", "callback_data": "menu_zones"}],
-                                [
-                                    {"text": "🔔 Мої райони слідкування", "callback_data": "menu_tracking"},
-                                    {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"},
-                                ],
-                                [
-                                    {"text": "🤖 ШІ-Агент 'Вартовий Неба'", "callback_data": "menu_ai_info"},
-                                    {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
-                                ],
-                            ]
-                        }
+                        quick_buttons = []
+                        home_meta = sub_manager.get_home_raion(chat_id)
+                        if home_meta and home_meta.get("raion"):
+                            r_name = home_meta["raion"]
+                            quick_buttons.append([{"text": f"⭐ Мій район: {r_name}", "callback_data": "quick_home"}])
+
+                        webapp_url = os.environ.get("WEBAPP_URL") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+                        if webapp_url:
+                            webapp_url = webapp_url.strip()
+                            if not webapp_url.startswith("http://") and not webapp_url.startswith("https://"):
+                                webapp_url = f"https://{webapp_url}"
+                            quick_buttons.append([{"text": "📱 Жива інтерактивна карта (WebApp)", "web_app": {"url": webapp_url}}])
+
+                        quick_buttons.extend([
+                            [{"text": "📍 Обрати область та район", "callback_data": "menu_zones"}],
+                            [
+                                {"text": "🔔 Мої райони слідкування", "callback_data": "menu_tracking"},
+                                {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": "mapall_kyiv_15m"},
+                            ],
+                            [
+                                {"text": "🤖 ШІ-Агент 'Вартовий Неба'", "callback_data": "menu_ai_info"},
+                                {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
+                            ],
+                        ])
+                        quick_menu = {"inline_keyboard": quick_buttons}
                         clear_prev_menu()
                         res = telegram_api_call(token, "sendMessage", {
                             "chat_id": chat_id,
@@ -2228,6 +2551,76 @@ def run_live_polling(token: str):
                                 })
                         continue
 
+                    # Set Home Raion
+                    if data.startswith("sethome_"):
+                        parts = data.split("_")
+                        if len(parts) >= 3:
+                            raion_idx = int(parts[-1])
+                            region_code = "_".join(parts[1:-1])
+                            reg_meta = ALL_REGIONS.get(region_code, {})
+                            raions = reg_meta.get("raions", [])
+                            if 0 <= raion_idx < len(raions):
+                                raion_name = raions[raion_idx]
+                                reg_name = reg_meta.get("name", region_code)
+                                sub_manager.set_home_raion(chat_id, raion_name, region_code=region_code, region_name=reg_name)
+                                telegram_api_call(token, "answerCallbackQuery", {
+                                    "callback_query_id": cq_id,
+                                    "text": f"⭐ Район «{raion_name}» збережено як ваш домашній район!\nВін закріплений у меню для доступу в 1 клік.",
+                                    "show_alert": True,
+                                })
+                                # Re-render horizon keyboard with updated state
+                                new_kb = get_raion_horizon_keyboard(region_code, raion_idx)
+                                update_or_send_message(
+                                    token=token,
+                                    chat_id=chat_id,
+                                    message_id=message_id,
+                                    text=(
+                                        f"⭐ <b>Район «{raion_name}» збережено як ваш «Мій район»!</b>\n\n"
+                                        f"📍 <b>Область:</b> {reg_name}\n"
+                                        f"🔔 Автоматичне слідкування та раннє попередження активовано.\n"
+                                        f"🌅 Щоранку о 08:00 вам надходитиме персональний дайджест безпеки."
+                                    ),
+                                    reply_markup=new_kb,
+                                    is_photo_message=is_photo_msg,
+                                    user_active_menu=user_active_menu,
+                                )
+                        continue
+
+                    # Quick Home View
+                    if data == "quick_home":
+                        home_meta = sub_manager.get_home_raion(chat_id)
+                        if home_meta and home_meta.get("raion"):
+                            r_name = home_meta["raion"]
+                            r_code = home_meta.get("region_code")
+                            if not r_code:
+                                raion_to_reg = {}
+                                for reg_k, reg_v in ALL_REGIONS.items():
+                                    for rn in reg_v.get("raions", []):
+                                        raion_to_reg[rn.lower()] = reg_k
+                                r_code = raion_to_reg.get(r_name.lower(), "kyiv_obl")
+                            raions_list = ALL_REGIONS.get(r_code, {}).get("raions", [])
+                            r_idx = raions_list.index(r_name) if r_name in raions_list else 0
+                            res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
+                            formatted_msg = format_interactive_forecast_response(res)
+                            kb = get_raion_horizon_keyboard(r_code, r_idx)
+                            telegram_api_call(token, "answerCallbackQuery", {"callback_query_id": cq_id})
+                            update_or_send_message(
+                                token=token,
+                                chat_id=chat_id,
+                                message_id=message_id,
+                                text=formatted_msg,
+                                reply_markup=kb,
+                                is_photo_message=is_photo_msg,
+                                user_active_menu=user_active_menu,
+                            )
+                        else:
+                            telegram_api_call(token, "answerCallbackQuery", {
+                                "callback_query_id": cq_id,
+                                "text": "Ви ще не встановили домашній район. Оберіть район та натисніть '⭐ Зробити моїм районом'.",
+                                "show_alert": True,
+                            })
+                        continue
+
                     telegram_api_call(token, "answerCallbackQuery", {"callback_query_id": cq_id})
 
                     if data in ["menu_zones", "menu_regions"]:
@@ -2236,7 +2629,7 @@ def run_live_polling(token: str):
                             chat_id=chat_id,
                             message_id=message_id,
                             text="📍 <b>Оберіть макрорегіон або перегляньте всі області:</b>",
-                            reply_markup=get_macro_zones_keyboard(),
+                            reply_markup=get_macro_zones_keyboard(chat_id=chat_id, sub_manager=sub_manager),
                             is_photo_message=is_photo_msg,
                             user_active_menu=user_active_menu,
                         )
@@ -2531,7 +2924,7 @@ def run_live_polling(token: str):
                             raion_name = raions[raion_idx] if 0 <= raion_idx < len(raions) else None
                             hor_mins = AVAILABLE_HORIZONS.get(horizon_code, {"minutes": 60})["minutes"]
 
-                            map_bytes = renderer.render_map(horizon_minutes=hor_mins, highlight_raion=raion_name)
+                            map_bytes = threat_syncer.get_tactical_map_bytes(horizon_minutes=hor_mins, highlight_raion=raion_name)
                             caption = build_map_caption(hor_mins, raion_name=raion_name)
                             map_action_kb = {
                                 "inline_keyboard": [
@@ -2563,7 +2956,7 @@ def run_live_polling(token: str):
                         parts = data.split("_")
                         horizon_code = parts[-1] if len(parts) >= 3 else "15m"
                         hor_mins = AVAILABLE_HORIZONS.get(horizon_code, {"minutes": 60})["minutes"]
-                        map_bytes = renderer.render_map(horizon_minutes=hor_mins)
+                        map_bytes = threat_syncer.get_tactical_map_bytes(horizon_minutes=hor_mins)
                         caption = build_map_caption(hor_mins)
                         # Delete prior message so that map replaces it cleanly
                         try:

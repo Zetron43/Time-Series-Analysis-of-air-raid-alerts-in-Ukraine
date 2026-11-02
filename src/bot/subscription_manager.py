@@ -85,6 +85,42 @@ class UserSubscriptionManager:
         cid = str(chat_id)
         return list(self._subscriptions.get(cid, {}).get("raions", []))
 
+    def set_home_raion(self, chat_id: int | str, raion_name: str, region_code: str = "", region_name: str = "") -> None:
+        """Sets the primary/pinned home raion for 1-click quick access."""
+        cid = str(chat_id)
+        if cid not in self._subscriptions:
+            self._subscriptions[cid] = {
+                "raions": [],
+                "created_at": datetime.now(KYIV_TZ).isoformat(),
+                "last_notifications": {},
+            }
+        self._subscriptions[cid]["home_raion"] = {
+            "raion": raion_name,
+            "region_code": region_code,
+            "region_name": region_name,
+            "updated_at": datetime.now(KYIV_TZ).isoformat(),
+        }
+        # Also auto-subscribe to home raion
+        raions = self._subscriptions[cid].get("raions", [])
+        if raion_name not in raions:
+            raions.append(raion_name)
+            self._subscriptions[cid]["raions"] = raions
+        self._save()
+
+    def get_home_raion(self, chat_id: int | str) -> Optional[Dict[str, str]]:
+        """Returns the user's pinned home raion if set."""
+        cid = str(chat_id)
+        return self._subscriptions.get(cid, {}).get("home_raion")
+
+    def clear_home_raion(self, chat_id: int | str) -> bool:
+        """Removes the pinned home raion."""
+        cid = str(chat_id)
+        if cid in self._subscriptions and "home_raion" in self._subscriptions[cid]:
+            del self._subscriptions[cid]["home_raion"]
+            self._save()
+            return True
+        return False
+
     def get_all_subscriptions(self) -> Dict[str, Dict[str, Any]]:
         """Returns all registered subscriptions."""
         return self._subscriptions

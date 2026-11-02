@@ -370,3 +370,50 @@ class AirRaidAIAgent:
                 f"⚠️ <b>Помилка ШІ-агента:</b> {e}\n\n"
                 "Спробуйте скористатися стандартними кнопками меню або уточніть запитання."
             )
+
+    def answer_voice_query(
+        self,
+        audio_bytes: bytes,
+        mime_type: str = "audio/ogg",
+        chat_id: Optional[str] = None,
+    ) -> str:
+        """Processes a voice message directly via Gemini Multimodal with tool-calling capabilities."""
+        if not self.is_configured():
+            return "🤖 ШІ-асистент наразі не налаштований (відсутній або недійсний ключ GEMINI_API_KEY)."
+
+        try:
+            from google.genai import types
+
+            prompt_instruction = (
+                f"[User chat_id: {chat_id}]\n"
+                "Користувач надіслав голосове повідомлення щодо повітряних тривог, дронів чи безпеки. "
+                "1. Прослухай аудіо та зрозумій суть запитання. "
+                "2. Якщо запитання стосується конкретного району, області або загальної загрози — "
+                "обов'язково викликай інструменти (tools) для отримання найсвіжіших фактів. "
+                "3. Надай лаконічну, структуровану, спокійну та корисну відповідь українською мовою."
+            )
+
+            audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+
+            tools = [
+                self.get_live_alerts_overview,
+                self.analyze_threat_forecast,
+                self.get_radar_drones_status,
+                self.manage_user_tracking,
+            ]
+
+            response = self._client.models.generate_content(
+                model=self.model_name,
+                contents=[audio_part, prompt_instruction],
+                config=types.GenerateContentConfig(
+                    system_instruction=AGENT_SYSTEM_INSTRUCTION,
+                    tools=tools,
+                    temperature=0.2,
+                ),
+            )
+            if response and response.text:
+                return format_ai_markdown_to_html(response.text.strip())
+            return "🤖 Не вдалося розпізнати голосовий запит. Спробуйте ще раз або напишіть текстом."
+        except Exception as e:
+            print(f"[-] AI Agent voice processing error: {e}", flush=True)
+            return f"⚠️ Вибачте, виникла помилка під час обробки голосового повідомлення: {e}"
