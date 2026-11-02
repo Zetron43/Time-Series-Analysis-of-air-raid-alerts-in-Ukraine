@@ -1415,7 +1415,24 @@ def get_raions_keyboard(region_code: str, raions_status_map: Optional[Dict[str, 
 
 def get_raion_horizon_keyboard(region_code: str, raion_idx: int) -> dict:
     """Builds Telegram Inline Keyboard for horizon selection for a specific raion."""
-    keyboard = [
+    reg_meta = ALL_REGIONS.get(region_code, {})
+    raions = reg_meta.get("raions", [])
+    raion_name = raions[raion_idx] if 0 <= raion_idx < len(raions) else None
+
+    keyboard = []
+
+    # Two-way sync: Bot Message -> WebApp focused on this raion
+    webapp_url = os.environ.get("WEBAPP_URL") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if webapp_url and raion_name:
+        webapp_url = webapp_url.strip()
+        if not webapp_url.startswith("http://") and not webapp_url.startswith("https://"):
+            webapp_url = f"https://{webapp_url}"
+        app_raion_url = f"{webapp_url}?raion={urllib.parse.quote(raion_name)}"
+        keyboard.append([
+            {"text": f"🗺 Відкрити «{raion_name}» на мапі", "web_app": {"url": app_raion_url}},
+        ])
+
+    keyboard.extend([
         [
             {"text": "⏱ 15 хвилин", "callback_data": f"hrn_{region_code}_{raion_idx}_15m"},
             {"text": "⏱ 30 хвилин", "callback_data": f"hrn_{region_code}_{raion_idx}_30m"},
@@ -1428,14 +1445,14 @@ def get_raion_horizon_keyboard(region_code: str, raion_idx: int) -> dict:
             {"text": "🤖 Запитати ШІ про цей район", "callback_data": f"ai_rn_{region_code}_{raion_idx}"},
         ],
         [
-            {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_15m"},
+            {"text": "🗺 Статична карта (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_15m"},
             {"text": "⭐ Зробити моїм районом", "callback_data": f"sethome_{region_code}_{raion_idx}"},
         ],
         [
             {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{region_code}_{raion_idx}"},
             {"text": "⬅️ Назад до районів", "callback_data": f"reg_{region_code}"},
         ],
-    ]
+    ])
     return {"inline_keyboard": keyboard}
 
 
@@ -1445,14 +1462,31 @@ def get_forecast_action_keyboard(
     horizon_code: str,
 ) -> dict:
     """Builds action keyboard under the generated forecast."""
+    webapp_url = os.environ.get("WEBAPP_URL") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
+    if webapp_url:
+        webapp_url = webapp_url.strip()
+        if not webapp_url.startswith("http://") and not webapp_url.startswith("https://"):
+            webapp_url = f"https://{webapp_url}"
+
     if raion_idx is not None:
-        keyboard = [
+        reg_meta = ALL_REGIONS.get(region_code, {})
+        raions = reg_meta.get("raions", [])
+        raion_name = raions[raion_idx] if 0 <= raion_idx < len(raions) else None
+
+        keyboard = []
+        if webapp_url and raion_name:
+            app_raion_url = f"{webapp_url}?raion={urllib.parse.quote(raion_name)}"
+            keyboard.append([
+                {"text": f"🗺 Відкрити «{raion_name}» на мапі", "web_app": {"url": app_raion_url}},
+            ])
+
+        keyboard.extend([
             [
                 {"text": "🔄 Оновити прогноз", "callback_data": f"hrn_{region_code}_{raion_idx}_{horizon_code}"},
                 {"text": "🤖 ШІ-Оцінка району", "callback_data": f"ai_rn_{region_code}_{raion_idx}"},
             ],
             [
-                {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_{horizon_code}"},
+                {"text": "🗺 Статична карта (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_{horizon_code}"},
                 {"text": "⭐ Зробити моїм районом", "callback_data": f"sethome_{region_code}_{raion_idx}"},
             ],
             [
@@ -1460,22 +1494,27 @@ def get_forecast_action_keyboard(
                 {"text": "⏱ Інший час", "callback_data": f"rn_{region_code}_{raion_idx}"},
             ],
             [{"text": "📍 Змінити область", "callback_data": "menu_zones"}],
-        ]
+        ])
     else:
-        keyboard = [
+        keyboard = []
+        if webapp_url:
+            keyboard.append([
+                {"text": "📱 Відкрити живу мапу України", "web_app": {"url": webapp_url}},
+            ])
+        keyboard.extend([
             [
                 {"text": "🔄 Оновити прогноз", "callback_data": f"hor_{region_code}_{horizon_code}"},
                 {"text": "🤖 ШІ-Оцінка області", "callback_data": f"ai_reg_{region_code}"},
             ],
             [
-                {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_{horizon_code}"},
+                {"text": "🗺 Статична карта (з БпЛА)", "callback_data": f"mapall_{region_code}_{horizon_code}"},
                 {"text": "🏘 Обрати конкретний район", "callback_data": f"reg_{region_code}"},
             ],
             [
                 {"text": "⏱ Інший час", "callback_data": f"regall_{region_code}"},
                 {"text": "📍 Змінити область", "callback_data": "menu_zones"},
             ],
-        ]
+        ])
     return {"inline_keyboard": keyboard}
 
 
