@@ -446,37 +446,66 @@
             color: var(--accent);
         }
 
-        /* Clean tactical UAV drone markers matching neptun.in.ua style */
+        /* Clean tactical UAV drone markers strictly pinned to coordinates without zoom drift */
         .clean-drone-marker {
-            position: relative;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            position: absolute !important;
+            width: 24px !important;
+            height: 24px !important;
+            padding: 0 !important;
+            background: transparent !important;
+            border: none !important;
+            outline: none !important;
+            transform-origin: 12px 12px;
+            pointer-events: auto;
             cursor: pointer;
         }
 
         .uav-wrap {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 24px;
+            height: 24px;
             display: flex;
             align-items: center;
             justify-content: center;
-            transition: transform 0.2s ease-out;
+            transform-origin: 12px 12px;
         }
 
         .blip-count {
             position: absolute;
-            top: -6px;
-            right: -8px;
+            top: -5px;
+            right: -6px;
             color: #ffffff;
-            font-size: 9.5px;
+            font-size: 9px;
             font-weight: 800;
             padding: 1px 4px;
             border-radius: 6px;
             border: 1px solid #ffffff;
             box-shadow: 0 0 5px rgba(0, 0, 0, 0.9);
             z-index: 10;
+            pointer-events: none;
         }
 
-        /* Oblast subtle labels */
+        .drone-loc-badge {
+            position: absolute;
+            bottom: -16px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(15, 23, 42, 0.92);
+            border: 1px solid rgba(255, 255, 255, 0.22);
+            border-radius: 5px;
+            padding: 1px 5px;
+            font-size: 9.5px;
+            font-weight: 700;
+            color: #f8fafc;
+            white-space: nowrap;
+            pointer-events: none;
+            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
+            z-index: 12;
+        }
+
+        /* Oblast and Raion subtle labels matching neptun.in.ua */
         .oblast-label {
             color: #78909c;
             font-size: 11px;
@@ -484,6 +513,19 @@
             text-shadow: 0 0 4px #000, 0 0 2px #000;
             white-space: nowrap;
             pointer-events: none;
+            text-align: center;
+        }
+
+        .raion-label {
+            position: absolute !important;
+            color: #94a3b8;
+            font-size: 10px;
+            font-weight: 600;
+            text-shadow: 0 0 4px #000, 0 0 2px #000;
+            white-space: nowrap;
+            pointer-events: none;
+            text-align: center;
+            opacity: 0.85;
         }
     </style>
 </head>
@@ -662,7 +704,7 @@
         // Auto-resynchronize map container and SVG/Marker projection matrix
         function resyncMapSize() {
             if (map) {
-                map.invalidateSize({ animate: false, reset: true });
+                map.invalidateSize({ animate: false });
             }
         }
 
@@ -691,6 +733,7 @@
         let geojsonLayer = null;
         let dronesLayer = L.layerGroup().addTo(map);
         let oblastsLayer = L.layerGroup().addTo(map);
+        let raionsLabelLayer = L.layerGroup();
 
         let threatsData = null;
         let regionsData = null;
@@ -739,6 +782,26 @@
             });
         }
         renderOblastLabels();
+
+        function updateLabelVisibility() {
+            const zoom = map.getZoom();
+            if (zoom >= 8) {
+                if (map.hasLayer(oblastsLayer)) map.removeLayer(oblastsLayer);
+                if (!map.hasLayer(raionsLabelLayer)) map.addLayer(raionsLabelLayer);
+            } else {
+                if (!map.hasLayer(oblastsLayer)) map.addLayer(oblastsLayer);
+                if (map.hasLayer(raionsLabelLayer)) map.removeLayer(raionsLabelLayer);
+            }
+        }
+
+        map.on('zoomend', function() {
+            updateLabelVisibility();
+            if (dronesLayer) {
+                dronesLayer.eachLayer(l => {
+                    if (l.update) l.update();
+                });
+            }
+        });
 
         // Switch Tabs
         function switchTab(tabId) {
@@ -968,14 +1031,16 @@
                         className: 'clean-drone-marker',
                         html: `
                             <div class="uav-wrap" style="transform: rotate(${rot}deg);">
-                                <svg viewBox="0 0 24 24" width="22" height="22" style="filter: drop-shadow(0 0 5px ${color});">
+                                <svg viewBox="0 0 24 24" width="24" height="24" style="filter: drop-shadow(0 0 5px ${color}); display: block;">
                                     <path d="M12 2 L22 20 L16 16.5 L12 18.5 L8 16.5 L2 20 Z" fill="${color}" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round"/>
                                 </svg>
                             </div>
                             ${count > 1 ? `<div class="blip-count" style="background:${color};">x${count}</div>` : ''}
+                            ${d.locality ? `<div class="drone-loc-badge">➔ ${d.locality}</div>` : ''}
                         `,
-                        iconSize: [22, 22],
-                        iconAnchor: [11, 11]
+                        iconSize: [24, 24],
+                        iconAnchor: [12, 12],
+                        popupAnchor: [0, -14]
                     });
 
                     const marker = L.marker([d.lat, d.lon], { icon: icon });
@@ -991,9 +1056,9 @@
                     `);
                     dronesLayer.addLayer(marker);
 
-                    // Directional course vector (Clean dashed line WITHOUT duplicate dot at the tip!)
+                    // Directional course vector (Clean dashed line starting at exact marker center)
                     if (hasHeading) {
-                        const distKm = 30.0;
+                        const distKm = 25.0;
                         const rad = d.heading * (Math.PI / 180.0);
                         let endLat = d.lat + (distKm * Math.cos(rad)) / 111.0;
                         let endLon = d.lon + (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
@@ -1217,6 +1282,25 @@
                     style: getRaionStyle,
                     onEachFeature: onEachFeature
                 }).addTo(map);
+
+                // Build Raion Center Labels for zoom >= 8
+                raionsLabelLayer.clearLayers();
+                geojsonLayer.eachLayer(layer => {
+                    if (layer.getBounds && layer.feature && layer.feature.properties) {
+                        const center = layer.getBounds().getCenter();
+                        const rName = (layer.feature.properties.rayon || '').replace(' район', ' р-н');
+                        if (rName) {
+                            const icon = L.divIcon({
+                                className: 'raion-label',
+                                html: `<div>${rName}</div>`,
+                                iconSize: [110, 16],
+                                iconAnchor: [55, 8]
+                            });
+                            raionsLabelLayer.addLayer(L.marker(center, { icon: icon, interactive: false }));
+                        }
+                    }
+                });
+                updateLabelVisibility();
 
                 loadRegions();
                 loadUserData();
