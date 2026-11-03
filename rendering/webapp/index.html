@@ -487,24 +487,6 @@
             pointer-events: none;
         }
 
-        .drone-loc-badge {
-            position: absolute;
-            bottom: -16px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(15, 23, 42, 0.92);
-            border: 1px solid rgba(255, 255, 255, 0.22);
-            border-radius: 5px;
-            padding: 1px 5px;
-            font-size: 9.5px;
-            font-weight: 700;
-            color: #f8fafc;
-            white-space: nowrap;
-            pointer-events: none;
-            box-shadow: 0 2px 6px rgba(0, 0, 0, 0.85);
-            z-index: 12;
-        }
-
         /* Oblast and Raion subtle labels matching neptun.in.ua */
         .oblast-label {
             color: #78909c;
@@ -1013,7 +995,7 @@
             }
         }
 
-        // Tactical Delta-Wing Drone Markers matching neptun.in.ua style
+        // Tactical Delta-Wing Drone Markers with 15-minute kinematic forward projection
         function updateDrones(dronesList) {
             dronesLayer.clearLayers();
             if (!dronesList) return;
@@ -1025,8 +1007,10 @@
                     const count = d.count || 1;
                     const rot = (d.heading !== null && d.heading !== undefined) ? d.heading : 0;
                     const hasHeading = (d.heading !== null && d.heading !== undefined);
+                    const speedKmh = (d.speed_kmh && Number(d.speed_kmh) > 50) ? Number(d.speed_kmh) : 180.0;
+                    const distKm15m = speedKmh * (15.0 / 60.0); // Exact 15-minute advance (~45 km at 180 km/h)
 
-                    // Tactical Delta-Wing Shahed UAV silhouette matching neptun.in.ua
+                    // Tactical Delta-Wing Shahed UAV silhouette (clean without text clutter)
                     const icon = L.divIcon({
                         className: 'clean-drone-marker',
                         html: `
@@ -1036,7 +1020,6 @@
                                 </svg>
                             </div>
                             ${count > 1 ? `<div class="blip-count" style="background:${color};">x${count}</div>` : ''}
-                            ${d.locality ? `<div class="drone-loc-badge">➔ ${d.locality}</div>` : ''}
                         `,
                         iconSize: [24, 24],
                         iconAnchor: [12, 12],
@@ -1046,34 +1029,52 @@
                     const marker = L.marker([d.lat, d.lon], { icon: icon });
                     const tierTitle = tier === "HIGH" ? "🔴 Підтверджений БпЛА (радар)" : (tier === "MEDIUM" ? "🟠 Група БпЛА" : "🟡 Поодинока ціль");
                     const targetLoc = d.locality ? ` ➔ ${d.locality}` : (d.region ? ` (${d.region})` : '');
+
+                    // Full info popup shown ONLY upon clicking on the drone
                     marker.bindPopup(`
-                        <div style="font-family:sans-serif; font-size:12px; line-height:1.4">
-                            <b style="color:${color}; font-size:13px">${d.title || 'БпЛА'}${targetLoc}</b><br>
-                            <span style="color:#cbd5e1">${tierTitle}</span><br>
-                            ${hasHeading ? `🧭 Курс: <b>${Math.round(d.heading)}°</b><br>` : ''}
-                            ⚡ Швидкість: <b>~${Math.round(d.speed_kmh || 180)} км/год</b>
+                        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 12px; line-height: 1.45; min-width: 175px;">
+                            <div style="font-size: 13.5px; font-weight: 800; color: ${color}; margin-bottom: 3px;">
+                                ${d.title || 'БпЛА'}${targetLoc}
+                            </div>
+                            <div style="color: #cbd5e1; font-size: 11px; margin-bottom: 5px;">
+                                ${tierTitle} ${count > 1 ? `• Група x${count}` : ''}
+                            </div>
+                            <div style="background: rgba(255,255,255,0.06); padding: 5px 8px; border-radius: 6px; font-size: 11px;">
+                                ${hasHeading ? `🧭 Курс: <b>${Math.round(d.heading)}°</b><br>` : ''}
+                                ⚡ Швидкість: <b>~${Math.round(speedKmh)} км/год</b><br>
+                                ${hasHeading ? `⏱ <b>Вектор на 15 хв:</b> ~${Math.round(distKm15m)} км вперед` : ''}
+                            </div>
                         </div>
                     `);
                     dronesLayer.addLayer(marker);
 
-                    // Directional course vector (Clean dashed line starting at exact marker center)
+                    // Directional course vector projected 15 minutes ahead
                     if (hasHeading) {
-                        const distKm = 25.0;
                         const rad = d.heading * (Math.PI / 180.0);
-                        let endLat = d.lat + (distKm * Math.cos(rad)) / 111.0;
-                        let endLon = d.lon + (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
+                        let endLat = d.lat + (distKm15m * Math.cos(rad)) / 111.0;
+                        let endLon = d.lon + (distKm15m * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
 
-                        // CLAMP to Ukraine borders
+                        // CLAMP strictly to sovereign Ukraine land borders
                         endLat = Math.max(44.38, Math.min(52.38, endLat));
                         endLon = Math.max(22.10, Math.min(40.25, endLon));
 
                         const line = L.polyline([[d.lat, d.lon], [endLat, endLon]], {
                             color: color,
-                            weight: 2.0,
-                            opacity: 0.8,
-                            dashArray: '4, 4'
+                            weight: 2.2,
+                            opacity: 0.85,
+                            dashArray: '5, 5'
                         });
                         dronesLayer.addLayer(line);
+
+                        // 15-minute horizon point marker (tactical endpoint dot)
+                        const endDot = L.circleMarker([endLat, endLon], {
+                            radius: 3,
+                            color: color,
+                            fillColor: color,
+                            fillOpacity: 0.9,
+                            weight: 1
+                        });
+                        dronesLayer.addLayer(endDot);
                     }
                 }
             });
