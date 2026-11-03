@@ -158,6 +158,10 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                     "tier": tier,
                     "color": color,
                     "speed_kmh": float(t.get("speed", 180.0) or 180.0),
+                    "locality": t.get("locality") or "",
+                    "region": t.get("region") or "",
+                    "title": t.get("title") or "Шахед",
+                    "updated_at": t.get("updatedAt") or "",
                 })
 
             payload = {

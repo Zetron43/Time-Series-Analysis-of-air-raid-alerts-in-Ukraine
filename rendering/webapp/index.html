@@ -446,52 +446,34 @@
             color: var(--accent);
         }
 
-        /* Clean drone markers (NO big text badges!) */
+        /* Clean tactical UAV drone markers matching neptun.in.ua style */
         .clean-drone-marker {
             position: relative;
             display: flex;
             align-items: center;
             justify-content: center;
+            cursor: pointer;
         }
 
-        .blip-core {
-            width: 12px;
-            height: 12px;
-            border-radius: 50%;
-            border: 2px solid #ffffff;
-            box-shadow: 0 0 8px currentColor;
-        }
-
-        .blip-pulse {
-            position: absolute;
-            top: 50%;
-            left: 50%;
-            transform: translate(-50%, -50%);
-            width: 24px;
-            height: 24px;
-            border-radius: 50%;
-            animation: pulse-blip-ring 1.4s infinite;
-            opacity: 0.4;
-            pointer-events: none;
-        }
-
-        @keyframes pulse-blip-ring {
-            0% { transform: translate(-50%, -50%) scale(0.85); opacity: 0.8; }
-            50% { transform: translate(-50%, -50%) scale(1.35); opacity: 0.25; }
-            100% { transform: translate(-50%, -50%) scale(0.85); opacity: 0.8; }
+        .uav-wrap {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: transform 0.2s ease-out;
         }
 
         .blip-count {
             position: absolute;
-            top: -7px;
-            right: -7px;
-            background: #111827;
+            top: -6px;
+            right: -8px;
             color: #ffffff;
-            font-size: 9px;
+            font-size: 9.5px;
             font-weight: 800;
             padding: 1px 4px;
             border-radius: 6px;
-            border: 1px solid currentColor;
+            border: 1px solid #ffffff;
+            box-shadow: 0 0 5px rgba(0, 0, 0, 0.9);
+            z-index: 10;
         }
 
         /* Oblast subtle labels */
@@ -659,9 +641,10 @@
         const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
         let userChatId = null;
 
-        // Ukraine map strict boundaries (Cannot pan outside Ukraine!)
-        const ukraineSouthWest = L.latLng(43.8, 21.5);
-        const ukraineNorthEast = L.latLng(52.8, 40.8);
+        // Exact Ukraine boundaries clamped strictly to official sovereign borders
+        // (Prevents vertical scrolling down into the Black Sea or up past Chernihiv)
+        const ukraineSouthWest = L.latLng(44.38, 22.10);
+        const ukraineNorthEast = L.latLng(52.38, 40.25);
         const ukraineBounds = L.latLngBounds(ukraineSouthWest, ukraineNorthEast);
 
         const map = L.map('map', {
@@ -670,8 +653,9 @@
             minZoom: 6,
             maxZoom: 10,
             maxBounds: ukraineBounds,
-            maxBoundsViscosity: 1.0 // Firm bounding wall!
-        }).setView([48.6, 31.4], 6);
+            maxBoundsViscosity: 1.0 // Firm bounding wall: cannot pan outside Ukraine!
+        });
+        map.fitBounds(ukraineBounds, { padding: [6, 6] });
 
         L.control.zoom({ position: 'topright' }).addTo(map);
 
@@ -966,76 +950,65 @@
             }
         }
 
-        // Clean drone blips (Different colors, strictly bounded inside Ukraine!)
+        // Tactical Delta-Wing Drone Markers matching neptun.in.ua style
         function updateDrones(dronesList) {
             dronesLayer.clearLayers();
             if (!dronesList) return;
 
             dronesList.forEach(d => {
                 if (d.lat && d.lon) {
-                    // Strict sovereign border filter: discard any points outside Ukrainian territory
-                    // or points spilling into Romania, Moldova or deep Black Sea
-                    if (d.lat < 44.38 || d.lat > 52.38 || d.lon < 22.14 || d.lon > 40.22) {
-                        return;
-                    }
-                    if (d.lon < 28.0 && d.lat < 47.9 && !(d.lon >= 25.0 && d.lat >= 47.9) && !(d.lon >= 28.5 && d.lat <= 45.6)) {
-                        return;
-                    }
-
                     const tier = d.tier || (d.is_confirmed ? "HIGH" : "MEDIUM");
                     const color = d.color || (tier === "HIGH" ? "#ef4444" : (tier === "MEDIUM" ? "#f97316" : "#fbbf24"));
                     const count = d.count || 1;
+                    const rot = (d.heading !== null && d.heading !== undefined) ? d.heading : 0;
+                    const hasHeading = (d.heading !== null && d.heading !== undefined);
 
-                    // Clean circular radar blip icon
+                    // Tactical Delta-Wing Shahed UAV silhouette matching neptun.in.ua
                     const icon = L.divIcon({
                         className: 'clean-drone-marker',
                         html: `
-                            <div class="blip-core" style="background:${color}; color:${color}"></div>
-                            <div class="blip-pulse" style="background:${color}"></div>
-                            ${count > 1 ? `<div class="blip-count" style="color:${color}">x${count}</div>` : ''}
+                            <div class="uav-wrap" style="transform: rotate(${rot}deg);">
+                                <svg viewBox="0 0 24 24" width="22" height="22" style="filter: drop-shadow(0 0 5px ${color});">
+                                    <path d="M12 2 L22 20 L16 16.5 L12 18.5 L8 16.5 L2 20 Z" fill="${color}" stroke="#ffffff" stroke-width="1.2" stroke-linejoin="round"/>
+                                </svg>
+                            </div>
+                            ${count > 1 ? `<div class="blip-count" style="background:${color};">x${count}</div>` : ''}
                         `,
-                        iconSize: [16, 16],
-                        iconAnchor: [8, 8]
+                        iconSize: [22, 22],
+                        iconAnchor: [11, 11]
                     });
 
                     const marker = L.marker([d.lat, d.lon], { icon: icon });
-                    const tierTitle = tier === "HIGH" ? "🔴 Підтверджений БпЛА (радар)" : (tier === "MEDIUM" ? "🟠 Ймовірна група БпЛА" : "🟡 Поодинока ціль");
+                    const tierTitle = tier === "HIGH" ? "🔴 Підтверджений БпЛА (радар)" : (tier === "MEDIUM" ? "🟠 Група БпЛА" : "🟡 Поодинока ціль");
+                    const targetLoc = d.locality ? ` ➔ ${d.locality}` : (d.region ? ` (${d.region})` : '');
                     marker.bindPopup(`
                         <div style="font-family:sans-serif; font-size:12px; line-height:1.4">
-                            <b>${tierTitle}</b><br>
-                            🧭 Курс: <b>${d.heading !== null && d.heading !== undefined ? d.heading + '°' : '—'}</b><br>
-                            ⚡ Швидкість: <b>~${d.speed_kmh || 180} км/год</b>
+                            <b style="color:${color}; font-size:13px">${d.title || 'БпЛА'}${targetLoc}</b><br>
+                            <span style="color:#cbd5e1">${tierTitle}</span><br>
+                            ${hasHeading ? `🧭 Курс: <b>${Math.round(d.heading)}°</b><br>` : ''}
+                            ⚡ Швидкість: <b>~${Math.round(d.speed_kmh || 180)} км/год</b>
                         </div>
                     `);
                     dronesLayer.addLayer(marker);
 
-                    // Draw bounded directional arrow (MAX 35 km, NEVER leaves Ukraine bounds!)
-                    if (d.heading !== null && d.heading !== undefined) {
-                        const distKm = 35.0; // Short, clean vector length
+                    // Directional course vector (Clean dashed line WITHOUT duplicate dot at the tip!)
+                    if (hasHeading) {
+                        const distKm = 30.0;
                         const rad = d.heading * (Math.PI / 180.0);
                         let endLat = d.lat + (distKm * Math.cos(rad)) / 111.0;
                         let endLon = d.lon + (distKm * Math.sin(rad)) / (111.0 * Math.cos(d.lat * (Math.PI / 180.0)));
 
                         // CLAMP to Ukraine borders
-                        endLat = Math.max(44.2, Math.min(52.4, endLat));
-                        endLon = Math.max(22.0, Math.min(40.2, endLon));
+                        endLat = Math.max(44.38, Math.min(52.38, endLat));
+                        endLon = Math.max(22.10, Math.min(40.25, endLon));
 
                         const line = L.polyline([[d.lat, d.lon], [endLat, endLon]], {
                             color: color,
-                            weight: 2.2,
-                            opacity: 0.85,
-                            dashArray: tier === "HIGH" ? null : '4, 4'
+                            weight: 2.0,
+                            opacity: 0.8,
+                            dashArray: '4, 4'
                         });
                         dronesLayer.addLayer(line);
-
-                        // Small arrow head circle at tip
-                        const tip = L.circleMarker([endLat, endLon], {
-                            radius: 2.5,
-                            color: color,
-                            fillColor: color,
-                            fillOpacity: 1
-                        });
-                        dronesLayer.addLayer(tip);
                     }
                 }
             });

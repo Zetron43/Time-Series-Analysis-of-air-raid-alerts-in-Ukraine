@@ -264,13 +264,10 @@ class AlertMapRenderer:
                 target_lat = max(UKRAINE_MIN_LAT, min(UKRAINE_MAX_LAT, target_lat))
                 target_lon = max(UKRAINE_MIN_LON, min(UKRAINE_MAX_LON, target_lon))
 
-                # Draw clean trajectory line
+                # Draw clean trajectory line (NO duplicate dot at tip)
                 linestyle = "-" if tier == "HIGH" else ("--" if tier == "MEDIUM" else ":")
                 lw = 1.6 if tier == "HIGH" else 1.2
                 ax.plot([lon, target_lon], [lat, target_lat], color=color, linestyle=linestyle, linewidth=lw, alpha=0.85, zorder=10)
-
-                # Small sleek arrow tip at target
-                ax.plot(target_lon, target_lat, marker=".", markersize=5, color=color, zorder=12)
 
         # Title & Subtitle Banner
         fig.text(0.04, 0.94, "КАРТА ПОВІТРЯНИХ ЗАГРОЗ ТА ВЕКТОРІВ БпЛА (РАЙОНИ УКРАЇНИ)", color="#f8fafc", fontsize=15, fontweight="bold")
