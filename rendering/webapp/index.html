@@ -945,11 +945,38 @@
         // Two-way actions
         function sendSheetRaionToBot() {
             if (!activeSelectedRaion) return;
-            if (tg) {
-                tg.sendData(JSON.stringify({ action: "select_raion", raion: activeSelectedRaion }));
-                tg.close();
+
+            const btn = document.querySelector('.btn-action.btn-primary.btn-full') || (window.event && window.event.target);
+            if (btn) btn.innerHTML = '⏳ Надсилаємо у чат...';
+
+            function doFallback() {
+                try {
+                    if (tg && tg.sendData) {
+                        tg.sendData(JSON.stringify({ action: "select_raion", raion: activeSelectedRaion }));
+                    }
+                } catch (e) {}
+                if (tg) tg.close();
+            }
+
+            if (userChatId) {
+                fetch('/api/send_to_chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ chat_id: userChatId, raion: activeSelectedRaion })
+                })
+                .then(r => r.json())
+                .then(res => {
+                    if (res && res.ok) {
+                        if (tg) tg.close();
+                    } else {
+                        doFallback();
+                    }
+                })
+                .catch(() => {
+                    doFallback();
+                });
             } else {
-                alert(`Ви обрали: "${activeSelectedRaion}". Зведення надіслано боту.`);
+                doFallback();
             }
         }
 

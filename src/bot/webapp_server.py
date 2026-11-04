@@ -14,6 +14,7 @@ Serves:
 from http.server import HTTPServer, BaseHTTPRequestHandler
 import json
 import os
+import re
 from pathlib import Path
 import threading
 from typing import Optional
@@ -109,8 +110,29 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
             raion_levels = {}
             for r_full, info in alerts_raions.items():
                 if info.get("active"):
+                    lvl = info.get("level", "YELLOW").upper()
                     r_clean = r_full.lower().replace(" район", "").strip()
-                    raion_levels[r_clean] = info.get("level", "YELLOW").upper()
+                    raion_levels[r_clean] = lvl
+                    base_name = re.sub(r"\(.*?\)", "", r_clean).strip()
+                    if base_name:
+                        raion_levels[base_name] = lvl
+                    parens = re.findall(r"\((.*?)\)", r_clean)
+                    for p in parens:
+                        p_clean = p.strip()
+                        if p_clean:
+                            raion_levels[p_clean] = lvl
+
+            # Standard canonical aliases for renamed raions
+            RAION_ALIASES = {
+                "володимир-волинський": "володимирський",
+                "новоград-волинський": "звягельський",
+                "червоноградський": "шептицький",
+                "новомосковський": "самарівський",
+                "красноградський": "берестинський",
+            }
+            for alias, target in RAION_ALIASES.items():
+                if target in raion_levels and alias not in raion_levels:
+                    raion_levels[alias] = raion_levels[target]
 
             threats = snap.get("raw_threats", [])
             classified = snap.get("classified_drones", {})
@@ -294,6 +316,60 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                     "subscribed": is_sub,
                     "subscriptions": _sub_manager.get_user_subscriptions(chat_id),
                 }
+            else:
+                resp_data = {"ok": False, "error": "Missing chat_id or raion"}
+
+            body = json.dumps(resp_data, ensure_ascii=False).encode("utf-8")
+            self.send_response(200)
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.send_cors_headers()
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path == "/api/send_to_chat":
+            if chat_id and raion_name:
+                token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or os.environ.get("TOKEN")
+                if token:
+                    try:
+                        from src.bot.interactive_bot import (
+                            ALL_REGIONS,
+                            ThreatAnalyzer,
+                            format_interactive_forecast_response,
+                            get_raion_horizon_keyboard,
+                            telegram_api_call,
+                        )
+                        clean_r = raion_name.lower().replace(" район", "").strip()
+                        found_region_code = "kyiv_obl"
+                        for reg_code, reg_info in ALL_REGIONS.items():
+                            for rn in reg_info.get("raions", []):
+                                if rn.lower().replace(" район", "").strip() == clean_r:
+                                    found_region_code = reg_code
+                                    break
+                            if found_region_code != "kyiv_obl":
+                                break
+
+                        raions_list = ALL_REGIONS.get(found_region_code, {}).get("raions", [])
+                        r_idx = raions_list.index(raion_name) if raion_name in raions_list else 0
+
+                        analyzer = ThreatAnalyzer()
+                        res = analyzer.analyze_threats_for_region(found_region_code, "60m", raion_name=raion_name)
+                        reply_text = format_interactive_forecast_response(res)
+                        kb = get_raion_horizon_keyboard(found_region_code, r_idx)
+
+                        send_res = telegram_api_call(token, "sendMessage", {
+                            "chat_id": chat_id,
+                            "text": reply_text,
+                            "parse_mode": "HTML",
+                            "reply_markup": kb,
+                        })
+                        resp_data = {"ok": send_res.get("ok", False)}
+                    except Exception as e:
+                        print(f"[-] /api/send_to_chat error: {e}", flush=True)
+                        resp_data = {"ok": False, "error": str(e)}
+                else:
+                    resp_data = {"ok": False, "error": "Bot token not available"}
             else:
                 resp_data = {"ok": False, "error": "Missing chat_id or raion"}
 

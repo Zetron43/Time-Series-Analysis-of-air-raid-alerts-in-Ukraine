@@ -1,6 +1,7 @@
 import io
 import json
 import math
+import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, Any, List, Optional
@@ -77,9 +78,21 @@ class AlertMapRenderer:
         # Build independent raion status dictionary strictly from alerts.in.ua (Ground Truth)
         raion_levels: Dict[str, str] = {}
         for r_full_name, r_info in alerts_raions.items():
+            if not r_info.get("active"):
+                continue
+            lvl = r_info.get("level", "YELLOW").upper()
             r_clean = r_full_name.lower().replace(" район", "").strip()
-            if r_info.get("active"):
-                raion_levels[r_clean] = r_info.get("level", "YELLOW").upper()
+            # Store exact normalized key
+            raion_levels[r_clean] = lvl
+            # Also store base name and parenthetical alias (e.g. 'красноградський (берестинський)')
+            base_name = re.sub(r"\(.*?\)", "", r_clean).strip()
+            if base_name:
+                raion_levels[base_name] = lvl
+            parens = re.findall(r"\((.*?)\)", r_clean)
+            for p in parens:
+                p_clean = p.strip()
+                if p_clean:
+                    raion_levels[p_clean] = lvl
 
         # Setup Matplotlib figure
         fig, ax = plt.subplots(figsize=(15, 9), dpi=140)
@@ -109,6 +122,9 @@ class AlertMapRenderer:
         RAION_ALIASES = {
             "володимир-волинський": "володимирський",
             "новоград-волинський": "звягельський",
+            "червоноградський": "шептицький",
+            "новомосковський": "самарівський",
+            "красноградський": "берестинський",
         }
 
         # Draw all 137 raion polygons strictly independently
@@ -117,8 +133,6 @@ class AlertMapRenderer:
             geom = feat.get("geometry", {})
             r_name = props.get("rayon", "")
             r_lower = r_name.lower().replace(" район", "").strip()
-            if r_lower in RAION_ALIASES:
-                r_lower = RAION_ALIASES[r_lower]
 
             # Determine alert status
             is_nominal = any(w in r_lower for w in ["крим", "севастополь", "луганськ", "донецьк"])
@@ -130,10 +144,14 @@ class AlertMapRenderer:
                         matched_level = v.get("level", "YELLOW")
                         break
             else:
-                for k, lvl in raion_levels.items():
-                    if r_lower in k or k in r_lower:
-                        matched_level = lvl
-                        break
+                # 1. Exact direct match
+                if r_lower in raion_levels:
+                    matched_level = raion_levels[r_lower]
+                else:
+                    # 2. Canonical alias match (for officially renamed raions)
+                    canon = RAION_ALIASES.get(r_lower, r_lower)
+                    if canon in raion_levels:
+                        matched_level = raion_levels[canon]
 
             if is_nominal and not matched_level:
                 face = COLOR_NOMINAL
@@ -159,10 +177,13 @@ class AlertMapRenderer:
                 alpha = 0.90
 
             is_highlighted = False
-            if highlight_raion and (highlight_raion.lower() in r_name.lower() or r_name.lower() in highlight_raion.lower()):
-                is_highlighted = True
-                edge = COLOR_HIGHLIGHT
-                lw = 2.4
+            if highlight_raion:
+                hl_clean = highlight_raion.lower().replace(" район", "").strip()
+                hl_canon = RAION_ALIASES.get(hl_clean, hl_clean)
+                if r_lower == hl_clean or r_lower == hl_canon:
+                    is_highlighted = True
+                    edge = COLOR_HIGHLIGHT
+                    lw = 2.4
 
             gtype = geom.get("type")
             coords = geom.get("coordinates", [])

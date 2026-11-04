@@ -7,6 +7,7 @@ Features:
 4. Integrates KinematicETACalculator directly for instantaneous raion ETA lookups.
 """
 
+import re
 import threading
 import time
 from datetime import datetime
@@ -222,10 +223,23 @@ class BackgroundThreatSyncer:
         alerts_raions = snap["alerts_raions"]
         clean_target = raion_name.lower().replace(" район", "").strip()
 
+        RAION_ALIASES = {
+            "володимир-волинський": "володимирський",
+            "новоград-волинський": "звягельський",
+            "червоноградський": "шептицький",
+            "новомосковський": "самарівський",
+            "красноградський": "берестинський",
+        }
+        canon_target = RAION_ALIASES.get(clean_target, clean_target)
+
         matched_info = None
         for r_full, info in alerts_raions.items():
             r_clean = r_full.lower().replace(" район", "").strip()
-            if clean_target in r_clean or r_clean in clean_target:
+            base_name = re.sub(r"\(.*?\)", "", r_clean).strip()
+            parens = [p.strip() for p in re.findall(r"\((.*?)\)", r_clean)]
+            # Strict exact equality matching:
+            # Prevents 'дністровський' from matching 'білгород-дністровський'
+            if canon_target in (r_clean, base_name) or canon_target in parens or clean_target in (r_clean, base_name) or clean_target in parens:
                 matched_info = info
                 break
 
