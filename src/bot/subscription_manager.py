@@ -22,108 +22,159 @@ except Exception:
 
 
 class UserSubscriptionManager:
-    """Thread-safe persistent manager for user raion alert subscriptions."""
+    """Thread-safe persistent manager for user raion alert subscriptions with auto-reload from disk."""
 
-    def __init__(self, file_path: Optional[str] = None):
+    _instances: Dict[str, "UserSubscriptionManager"] = {}
+    _global_lock = threading.Lock()
+
+    def __new__(cls, file_path: Optional[str] = None):
         if not file_path:
             file_path = str(Path(__file__).resolve().parents[2] / "data" / "user_subscriptions.json")
-        self.file_path = file_path
+        norm_path = os.path.abspath(file_path)
+        with cls._global_lock:
+            if norm_path not in cls._instances:
+                inst = super().__new__(cls)
+                cls._instances[norm_path] = inst
+            return cls._instances[norm_path]
+
+    def __init__(self, file_path: Optional[str] = None):
+        if hasattr(self, "_initialized") and self._initialized:
+            self._check_reload()
+            return
+        if not file_path:
+            file_path = str(Path(__file__).resolve().parents[2] / "data" / "user_subscriptions.json")
+        self.file_path = os.path.abspath(file_path)
+        self._lock = threading.RLock()
         self._subscriptions: Dict[str, Dict[str, Any]] = {}
+        self._last_mtime: float = 0.0
         self._load()
+        self._initialized = True
+
+    def _check_reload(self):
+        """Checks if the file on disk was modified by another thread/process and reloads it."""
+        try:
+            p = Path(self.file_path)
+            if p.exists():
+                mtime = p.stat().st_mtime
+                if mtime > self._last_mtime:
+                    self._load()
+        except Exception:
+            pass
 
     def _load(self):
-        p = Path(self.file_path)
-        if p.exists():
-            try:
-                with open(p, "r", encoding="utf-8") as f:
-                    self._subscriptions = json.load(f)
-            except Exception:
-                self._subscriptions = {}
-        else:
-            p.parent.mkdir(parents=True, exist_ok=True)
-            self._save()
+        with self._lock:
+            p = Path(self.file_path)
+            if p.exists():
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        self._subscriptions = json.load(f)
+                    self._last_mtime = p.stat().st_mtime
+                except Exception:
+                    self._subscriptions = {}
+            else:
+                p.parent.mkdir(parents=True, exist_ok=True)
+                self._save()
 
     def _save(self):
-        try:
-            with open(self.file_path, "w", encoding="utf-8") as f:
-                json.dump(self._subscriptions, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            print(f"[-] Error saving subscriptions: {e}", flush=True)
+        with self._lock:
+            try:
+                p = Path(self.file_path)
+                p.parent.mkdir(parents=True, exist_ok=True)
+                with open(self.file_path, "w", encoding="utf-8") as f:
+                    json.dump(self._subscriptions, f, ensure_ascii=False, indent=2)
+                if p.exists():
+                    self._last_mtime = p.stat().st_mtime
+            except Exception as e:
+                print(f"[-] Error saving subscriptions: {e}", flush=True)
 
     def add_subscription(self, chat_id: int | str, raion_name: str) -> bool:
         """Adds a raion to user's tracked list. Returns True if newly added."""
-        cid = str(chat_id)
-        if cid not in self._subscriptions:
-            self._subscriptions[cid] = {
-                "raions": [],
-                "created_at": datetime.now(KYIV_TZ).isoformat(),
-                "last_notifications": {},
-            }
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            if cid not in self._subscriptions:
+                self._subscriptions[cid] = {
+                    "raions": [],
+                    "created_at": datetime.now(KYIV_TZ).isoformat(),
+                    "last_notifications": {},
+                }
 
-        raions = self._subscriptions[cid].get("raions", [])
-        if raion_name not in raions:
-            raions.append(raion_name)
-            self._subscriptions[cid]["raions"] = raions
-            self._save()
-            return True
-        return False
-
-    def remove_subscription(self, chat_id: int | str, raion_name: str) -> bool:
-        """Removes a raion from user's tracked list."""
-        cid = str(chat_id)
-        if cid in self._subscriptions:
             raions = self._subscriptions[cid].get("raions", [])
-            if raion_name in raions:
-                raions.remove(raion_name)
+            if raion_name not in raions:
+                raions.append(raion_name)
                 self._subscriptions[cid]["raions"] = raions
                 self._save()
                 return True
-        return False
+            return False
+
+    def remove_subscription(self, chat_id: int | str, raion_name: str) -> bool:
+        """Removes a raion from user's tracked list."""
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            if cid in self._subscriptions:
+                raions = self._subscriptions[cid].get("raions", [])
+                if raion_name in raions:
+                    raions.remove(raion_name)
+                    self._subscriptions[cid]["raions"] = raions
+                    self._save()
+                    return True
+            return False
 
     def get_user_subscriptions(self, chat_id: int | str) -> List[str]:
         """Returns list of tracked raions for a specific user."""
-        cid = str(chat_id)
-        return list(self._subscriptions.get(cid, {}).get("raions", []))
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            return list(self._subscriptions.get(cid, {}).get("raions", []))
 
     def set_home_raion(self, chat_id: int | str, raion_name: str, region_code: str = "", region_name: str = "") -> None:
         """Sets the primary/pinned home raion for 1-click quick access."""
-        cid = str(chat_id)
-        if cid not in self._subscriptions:
-            self._subscriptions[cid] = {
-                "raions": [],
-                "created_at": datetime.now(KYIV_TZ).isoformat(),
-                "last_notifications": {},
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            if cid not in self._subscriptions:
+                self._subscriptions[cid] = {
+                    "raions": [],
+                    "created_at": datetime.now(KYIV_TZ).isoformat(),
+                    "last_notifications": {},
+                }
+            self._subscriptions[cid]["home_raion"] = {
+                "raion": raion_name,
+                "region_code": region_code,
+                "region_name": region_name,
+                "updated_at": datetime.now(KYIV_TZ).isoformat(),
             }
-        self._subscriptions[cid]["home_raion"] = {
-            "raion": raion_name,
-            "region_code": region_code,
-            "region_name": region_name,
-            "updated_at": datetime.now(KYIV_TZ).isoformat(),
-        }
-        # Also auto-subscribe to home raion
-        raions = self._subscriptions[cid].get("raions", [])
-        if raion_name not in raions:
-            raions.append(raion_name)
-            self._subscriptions[cid]["raions"] = raions
-        self._save()
+            # Also auto-subscribe to home raion
+            raions = self._subscriptions[cid].get("raions", [])
+            if raion_name not in raions:
+                raions.append(raion_name)
+                self._subscriptions[cid]["raions"] = raions
+            self._save()
 
     def get_home_raion(self, chat_id: int | str) -> Optional[Dict[str, str]]:
         """Returns the user's pinned home raion if set."""
-        cid = str(chat_id)
-        return self._subscriptions.get(cid, {}).get("home_raion")
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            return self._subscriptions.get(cid, {}).get("home_raion")
 
     def clear_home_raion(self, chat_id: int | str) -> bool:
         """Removes the pinned home raion."""
-        cid = str(chat_id)
-        if cid in self._subscriptions and "home_raion" in self._subscriptions[cid]:
-            del self._subscriptions[cid]["home_raion"]
-            self._save()
-            return True
-        return False
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            if cid in self._subscriptions and "home_raion" in self._subscriptions[cid]:
+                del self._subscriptions[cid]["home_raion"]
+                self._save()
+                return True
+            return False
 
     def get_all_subscriptions(self) -> Dict[str, Dict[str, Any]]:
         """Returns all registered subscriptions."""
-        return self._subscriptions
+        self._check_reload()
+        with self._lock:
+            return dict(self._subscriptions)
 
     def should_notify(
         self,
@@ -133,54 +184,61 @@ class UserSubscriptionManager:
         cooldown_minutes: int = 25,
     ) -> bool:
         """Determines if enough time has passed to send a specific notification event."""
-        cid = str(chat_id)
-        user_data = self._subscriptions.get(cid, {})
-        last_notes = user_data.get("last_notifications", {})
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            user_data = self._subscriptions.get(cid, {})
+            last_notes = user_data.get("last_notifications", {})
 
-        note_id = f"{raion_name}::{event_key}"
-        last_time_str = last_notes.get(note_id)
+            note_id = f"{raion_name}::{event_key}"
+            last_time_str = last_notes.get(note_id)
 
-        now = datetime.now(KYIV_TZ)
-        if not last_time_str:
-            return True
-
-        try:
-            last_dt = datetime.fromisoformat(last_time_str)
-            if (now - last_dt) > timedelta(minutes=cooldown_minutes):
+            now = datetime.now(KYIV_TZ)
+            if not last_time_str:
                 return True
-            return False
-        except Exception:
-            return True
+
+            try:
+                last_dt = datetime.fromisoformat(last_time_str)
+                if (now - last_dt) > timedelta(minutes=cooldown_minutes):
+                    return True
+                return False
+            except Exception:
+                return True
 
     def mark_notified(self, chat_id: int | str, raion_name: str, event_key: str):
         """Marks that a notification was dispatched at current time."""
-        cid = str(chat_id)
-        if cid in self._subscriptions:
-            if "last_notifications" not in self._subscriptions[cid]:
-                self._subscriptions[cid]["last_notifications"] = {}
-            note_id = f"{raion_name}::{event_key}"
-            self._subscriptions[cid]["last_notifications"][note_id] = datetime.now(KYIV_TZ).isoformat()
-            self._save()
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            if cid in self._subscriptions:
+                if "last_notifications" not in self._subscriptions[cid]:
+                    self._subscriptions[cid]["last_notifications"] = {}
+                note_id = f"{raion_name}::{event_key}"
+                self._subscriptions[cid]["last_notifications"][note_id] = datetime.now(KYIV_TZ).isoformat()
+                self._save()
 
     def set_alert_state(self, chat_id: int | str, raion_name: str, state: str):
         """Sets the last known active alert state for (chat_id, raion_name)."""
-        cid = str(chat_id)
-        if cid in self._subscriptions:
-            if "alert_states" not in self._subscriptions[cid]:
-                self._subscriptions[cid]["alert_states"] = {}
-            self._subscriptions[cid]["alert_states"][raion_name] = state
-            self._save()
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            if cid in self._subscriptions:
+                if "alert_states" not in self._subscriptions[cid]:
+                    self._subscriptions[cid]["alert_states"] = {}
+                self._subscriptions[cid]["alert_states"][raion_name] = state
+                self._save()
 
     def get_alert_state(self, chat_id: int | str, raion_name: str) -> str:
         """Returns the last alert state ('OFFICIAL', 'WARNING', 'NEIGHBOR', 'CLEAR')."""
-        cid = str(chat_id)
-        user_data = self._subscriptions.get(cid, {})
-        return user_data.get("alert_states", {}).get(raion_name, "CLEAR")
+        self._check_reload()
+        with self._lock:
+            cid = str(chat_id)
+            user_data = self._subscriptions.get(cid, {})
+            return user_data.get("alert_states", {}).get(raion_name, "CLEAR")
 
     def had_active_alert(self, chat_id: int | str, raion_name: str) -> bool:
         """Checks if there was an active official alarm or warning previously recorded."""
-        state = self.get_alert_state(chat_id, raion_name)
-        return state in ["OFFICIAL", "WARNING", "NEIGHBOR"]
+        return self.get_alert_state(chat_id, raion_name) in ["OFFICIAL", "WARNING", "NEIGHBOR"]
 
     def clear_alert_state(self, chat_id: int | str, raion_name: str):
         """Clears the active alert state back to CLEAR."""

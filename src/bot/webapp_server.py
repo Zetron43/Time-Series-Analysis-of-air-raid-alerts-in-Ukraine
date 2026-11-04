@@ -290,6 +290,24 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                             break
                 _sub_manager.set_home_raion(chat_id, raion_name, region_code=r_code, region_name=reg_name)
                 resp_data = {"ok": True, "home_raion": _sub_manager.get_home_raion(chat_id)}
+
+                # Synchronize notification back to Telegram chat
+                token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or os.environ.get("TOKEN")
+                if token:
+                    try:
+                        from src.bot.interactive_bot import telegram_api_call
+                        telegram_api_call(token, "sendMessage", {
+                            "chat_id": chat_id,
+                            "text": (
+                                f"⭐ <b>Ваш «Мій район» оновлено через веб-мапу:</b>\n\n"
+                                f"📍 <b>{raion_name}</b> ({reg_name})\n"
+                                f"🔔 Автоматичне слідкування та ранні сповіщення для цього району активовано.\n"
+                                f"Для швидкого перегляду в 1 клік використовуйте кнопку «⭐ Мій район» у головному меню чату."
+                            ),
+                            "parse_mode": "HTML",
+                        })
+                    except Exception as e:
+                        print(f"[WebAppServer] Error sending set_home chat sync message: {e}")
             else:
                 resp_data = {"ok": False, "error": "Missing chat_id or raion"}
 
@@ -316,6 +334,27 @@ class WebAppRequestHandler(BaseHTTPRequestHandler):
                     "subscribed": is_sub,
                     "subscriptions": _sub_manager.get_user_subscriptions(chat_id),
                 }
+
+                # Synchronize notification back to Telegram chat
+                token = os.environ.get("TELEGRAM_BOT_TOKEN") or os.environ.get("BOT_TOKEN") or os.environ.get("TELEGRAM_TOKEN") or os.environ.get("TOKEN")
+                if token:
+                    try:
+                        from src.bot.interactive_bot import telegram_api_call
+                        if is_sub:
+                            sub_text = (
+                                f"🔔 <b>Підписку активовано через веб-мапу:</b>\n\n"
+                                f"📍 <b>{raion_name}</b>\n"
+                                f"Бот надсилатиме вам миттєві сповіщення при появі загроз або наближенні БпЛА до цього району."
+                            )
+                        else:
+                            sub_text = f"🔕 <b>Підписку вимкнено через веб-мапу:</b>\n\n📍 <b>{raion_name}</b>"
+                        telegram_api_call(token, "sendMessage", {
+                            "chat_id": chat_id,
+                            "text": sub_text,
+                            "parse_mode": "HTML",
+                        })
+                    except Exception as e:
+                        print(f"[WebAppServer] Error sending toggle_sub chat sync message: {e}")
             else:
                 resp_data = {"ok": False, "error": "Missing chat_id or raion"}
 

@@ -509,9 +509,62 @@
             text-align: center;
             opacity: 0.85;
         }
+
+        /* Tactical Leaflet Popup matching tactical radar aesthetic */
+        .leaflet-popup-content-wrapper {
+            background: #ffffff !important;
+            color: #0f172a !important;
+            border-radius: 12px !important;
+            box-shadow: 0 10px 28px rgba(0, 0, 0, 0.45) !important;
+            padding: 4px 6px !important;
+        }
+        .leaflet-popup-tip {
+            background: #ffffff !important;
+        }
+        .leaflet-popup-content {
+            margin: 10px 14px !important;
+            line-height: 1.45 !important;
+        }
+        .leaflet-container a.leaflet-popup-close-button {
+            color: #64748b !important;
+            top: 10px !important;
+            right: 12px !important;
+            font-size: 16px !important;
+            font-weight: 700 !important;
+        }
+
+        /* Toast notification pill */
+        .toast-notify {
+            position: fixed;
+            top: 58px;
+            left: 50%;
+            transform: translateX(-50%) translateY(-25px);
+            background: rgba(15, 23, 42, 0.95);
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            color: #ffffff;
+            padding: 9px 18px;
+            border-radius: 20px;
+            font-size: 12.5px;
+            font-weight: 600;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.6);
+            z-index: 9999;
+            opacity: 0;
+            pointer-events: none;
+            transition: opacity 0.22s ease, transform 0.22s ease;
+            max-width: 90%;
+            text-align: center;
+        }
+        .toast-notify.visible {
+            opacity: 1;
+            transform: translateX(-50%) translateY(0);
+        }
     </style>
 </head>
 <body>
+
+    <div id="toast-notify" class="toast-notify"></div>
 
     <div id="app-container">
         <!-- Top App Bar (BotFather Header Style) -->
@@ -663,7 +716,36 @@
     <script>
         // Init Telegram WebApp
         const tg = window.Telegram && window.Telegram.WebApp ? window.Telegram.WebApp : null;
-        let userChatId = null;
+
+        // Multi-tier userChatId discovery: URL parameter -> Telegram WebApp user id -> LocalStorage
+        const urlParams = new URLSearchParams(window.location.search);
+        let userChatId = urlParams.get('chat_id');
+        if (tg) {
+            tg.ready();
+            tg.expand();
+            if (!userChatId && tg.initDataUnsafe && tg.initDataUnsafe.user) {
+                userChatId = tg.initDataUnsafe.user.id;
+            }
+            tg.onEvent('viewportChanged', resyncMapSize);
+        }
+        if (!userChatId) {
+            userChatId = localStorage.getItem('alert_user_chat_id');
+        }
+        if (userChatId) {
+            localStorage.setItem('alert_user_chat_id', userChatId);
+        }
+
+        let toastTimer = null;
+        function showToast(msg) {
+            const el = document.getElementById('toast-notify');
+            if (!el) return;
+            el.innerHTML = msg;
+            el.classList.add('visible');
+            if (toastTimer) clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                el.classList.remove('visible');
+            }, 3200);
+        }
 
         // Exact Ukraine boundaries clamped strictly to official sovereign borders
         // (Prevents vertical scrolling down into the Black Sea or up past Chernihiv)
@@ -799,6 +881,8 @@
             if (tabId === 'tab-map') {
                 setTimeout(resyncMapSize, 50);
                 setTimeout(resyncMapSize, 200);
+            } else if (tabId === 'tab-home' || tabId === 'tab-subs') {
+                loadUserData();
             }
         }
 
@@ -916,10 +1000,41 @@
         }
 
         function updateSheetButtons(raionName) {
+            if (!raionName) return;
+            const btnHome = document.getElementById('btn-sheet-set-home');
             const btnSub = document.getElementById('btn-sheet-toggle-sub');
+            const cleanTarget = raionName.toLowerCase().replace(' район', '').trim();
+
+            if (btnHome) {
+                const isHome = userData.home_raion && 
+                               userData.home_raion.raion && 
+                               (userData.home_raion.raion.toLowerCase().replace(' район', '').trim() === cleanTarget);
+                if (isHome) {
+                    btnHome.innerHTML = '⭐ Мій район ✓';
+                    btnHome.style.background = 'rgba(234, 179, 8, 0.2)';
+                    btnHome.style.color = '#fde047';
+                    btnHome.style.borderColor = 'rgba(234, 179, 8, 0.5)';
+                } else {
+                    btnHome.innerHTML = '⭐ Зробити «Мій район»';
+                    btnHome.style.background = '';
+                    btnHome.style.color = '';
+                    btnHome.style.borderColor = '';
+                }
+            }
+
             if (btnSub) {
-                const isSub = userData.subscriptions && userData.subscriptions.includes(raionName);
-                btnSub.innerHTML = isSub ? '🔕 Відписатися' : '🔔 Підписатися';
+                const isSub = (userData.subscriptions || []).some(r => r.toLowerCase().replace(' район', '').trim() === cleanTarget);
+                if (isSub) {
+                    btnSub.innerHTML = '🔕 Відписатися';
+                    btnSub.style.background = 'rgba(239, 68, 68, 0.15)';
+                    btnSub.style.color = '#fca5a5';
+                    btnSub.style.borderColor = 'rgba(239, 68, 68, 0.4)';
+                } else {
+                    btnSub.innerHTML = '🔔 Підписатися';
+                    btnSub.style.background = 'rgba(59, 130, 246, 0.15)';
+                    btnSub.style.color = '#93c5fd';
+                    btnSub.style.borderColor = 'rgba(59, 130, 246, 0.4)';
+                }
             }
         }
 
@@ -967,7 +1082,8 @@
                 .then(r => r.json())
                 .then(res => {
                     if (res && res.ok) {
-                        if (tg) tg.close();
+                        showToast(`💬 Інформацію про «${activeSelectedRaion}» надіслано в чат!`);
+                        if (tg) setTimeout(() => tg.close(), 600);
                     } else {
                         doFallback();
                     }
@@ -982,31 +1098,57 @@
 
         function setSheetRaionAsHome() {
             if (!activeSelectedRaion) return;
-            userData.home_raion = { raion: activeSelectedRaion };
+            const rName = activeSelectedRaion;
+            const btnHome = document.getElementById('btn-sheet-set-home');
+            if (btnHome) btnHome.innerHTML = '⏳ Зберігаємо...';
+
+            // Optimistic UI updates
+            userData.home_raion = { raion: rName };
+            if (!userData.subscriptions) userData.subscriptions = [];
+            const cleanTarget = rName.toLowerCase().replace(' район', '').trim();
+            if (!userData.subscriptions.some(r => r.toLowerCase().replace(' район', '').trim() === cleanTarget)) {
+                userData.subscriptions.push(rName);
+            }
             updateHomeRaionUI();
+            renderSubscriptionsList();
+            updateSheetButtons(rName);
 
             if (userChatId) {
                 fetch('/api/set_home', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ chat_id: userChatId, raion: activeSelectedRaion })
-                }).catch(() => {});
-            }
-
-            if (tg) {
-                tg.sendData(JSON.stringify({ action: "set_home", raion: activeSelectedRaion }));
-                tg.close();
+                    body: JSON.stringify({ chat_id: userChatId, raion: rName })
+                })
+                .then(r => r.json())
+                .then(res => {
+                    if (res && res.ok) {
+                        if (res.home_raion) userData.home_raion = res.home_raion;
+                        updateHomeRaionUI();
+                        updateSheetButtons(rName);
+                        showToast(`⭐ «${rName}» закріплено як Мій район та синхронізовано з чатом!`);
+                    }
+                })
+                .catch(err => {
+                    console.error("Set home error", err);
+                    showToast(`⭐ «${rName}» збережено!`);
+                });
             } else {
-                alert(`⭐ «${activeSelectedRaion}» збережено як Мій район!`);
+                showToast(`⭐ «${rName}» збережено як Мій район!`);
             }
         }
 
         function toggleSheetRaionSub() {
             if (!activeSelectedRaion) return;
             const rName = activeSelectedRaion;
-            let isSub = userData.subscriptions.includes(rName);
+            const btnSub = document.getElementById('btn-sheet-toggle-sub');
+            if (btnSub) btnSub.innerHTML = '⏳ Оновлюємо...';
+
+            if (!userData.subscriptions) userData.subscriptions = [];
+            const cleanTarget = rName.toLowerCase().replace(' район', '').trim();
+            const isSub = userData.subscriptions.some(r => r.toLowerCase().replace(' район', '').trim() === cleanTarget);
+
             if (isSub) {
-                userData.subscriptions = userData.subscriptions.filter(r => r !== rName);
+                userData.subscriptions = userData.subscriptions.filter(r => r.toLowerCase().replace(' район', '').trim() !== cleanTarget);
             } else {
                 userData.subscriptions.push(rName);
             }
@@ -1018,7 +1160,22 @@
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({ chat_id: userChatId, raion: rName })
-                }).catch(() => {});
+                })
+                .then(r => r.json())
+                .then(res => {
+                    if (res && res.ok) {
+                        userData.subscriptions = res.subscriptions || [];
+                        const nowSub = res.subscribed;
+                        showToast(nowSub ? `🔔 Підписку на «${rName}» активовано!` : `🔕 Підписку на «${rName}» вимкнено.`);
+                        updateSheetButtons(rName);
+                        renderSubscriptionsList();
+                    }
+                })
+                .catch(err => {
+                    console.error("Toggle sub error", err);
+                });
+            } else {
+                showToast(!isSub ? `🔔 Підписку на «${rName}» активовано!` : `🔕 Підписку вимкнено.`);
             }
         }
 
@@ -1057,19 +1214,19 @@
                     const tierTitle = tier === "HIGH" ? "🔴 Підтверджений БпЛА (радар)" : (tier === "MEDIUM" ? "🟠 Група БпЛА" : "🟡 Поодинока ціль");
                     const targetLoc = d.locality ? ` ➔ ${d.locality}` : (d.region ? ` (${d.region})` : '');
 
-                    // Full info popup shown ONLY upon clicking on the drone
+                    // Full info popup shown ONLY upon clicking on the drone (matches image 7)
                     marker.bindPopup(`
-                        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 12px; line-height: 1.45; min-width: 175px;">
-                            <div style="font-size: 13.5px; font-weight: 800; color: ${color}; margin-bottom: 3px;">
+                        <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; font-size: 13px;">
+                            <div style="font-size: 14.5px; font-weight: 800; color: ${color === '#ef4444' ? '#dc2626' : (color === '#f97316' ? '#ea580c' : '#d97706')}; margin-bottom: 4px;">
                                 ${d.title || 'БпЛА'}${targetLoc}
                             </div>
-                            <div style="color: #cbd5e1; font-size: 11px; margin-bottom: 5px;">
+                            <div style="color: #475569; font-size: 12px; font-weight: 600; margin-bottom: 6px;">
                                 ${tierTitle} ${count > 1 ? `• Група x${count}` : ''}
                             </div>
-                            <div style="background: rgba(255,255,255,0.06); padding: 5px 8px; border-radius: 6px; font-size: 11px;">
+                            <div style="background: #f8fafc; border-radius: 8px; padding: 7px 10px; font-size: 12px; color: #1e293b; border: 1px solid #e2e8f0; line-height: 1.5;">
                                 ${hasHeading ? `🧭 Курс: <b>${Math.round(d.heading)}°</b><br>` : ''}
                                 ⚡ Швидкість: <b>~${Math.round(speedKmh)} км/год</b><br>
-                                ${hasHeading ? `⏱ <b>Вектор на 15 хв:</b> ~${Math.round(distKm15m)} км вперед` : ''}
+                                ${hasHeading ? `⏱ <b>Вектор (15 хв):</b> ~${Math.round(distKm15m)} км вперед` : ''}
                             </div>
                         </div>
                     `);
@@ -1206,16 +1363,29 @@
         }
 
         function updateHomeRaionUI() {
-            if (userData.home_raion && userData.home_raion.raion) {
+            const titleEl = document.getElementById('home-raion-title');
+            const subEl = document.getElementById('home-raion-sub');
+            if (!titleEl || !subEl) return;
+
+            if (userData && userData.home_raion && userData.home_raion.raion) {
                 const hName = userData.home_raion.raion;
-                document.getElementById('home-raion-title').innerText = hName;
+                titleEl.innerText = hName;
                 const clean = hName.toLowerCase().replace(' район', '').trim();
                 const lvl = (threatsData && threatsData.raion_levels) ? threatsData.raion_levels[clean] : 'CLEAR';
                 let lvlText = '🟢 Спокійно (тривоги немає)';
                 if (lvl === 'RED') lvlText = '🔴 ПОВІТРЯНА ТРИВОГА';
-                if (lvl === 'YELLOW') lvlText = '🟡 Радарна загроза (БпЛА)';
-                document.getElementById('home-raion-sub').innerText = lvlText;
+                if (lvl === 'YELLOW') lvlText = '🟡 Радарна небезпека (БпЛА)';
+                subEl.innerText = lvlText;
+            } else {
+                titleEl.innerText = 'Район не закріплено';
+                subEl.innerText = 'Оберіть район та натисніть «⭐ Зробити моїм районом»';
             }
+        }
+
+        function unsubscribeFromList(event, rName) {
+            if (event) event.stopPropagation();
+            activeSelectedRaion = rName;
+            toggleSheetRaionSub();
         }
 
         function renderSubscriptionsList() {
@@ -1260,6 +1430,7 @@
                             <div class="item-title">${rn}</div>
                             <div class="item-subtitle">${statusText}</div>
                         </div>
+                        <button class="sheet-close-btn" style="font-size:15px; padding:6px 10px; margin-right:4px;" title="Відписатися" onclick="unsubscribeFromList(event, '${escapedRn}')">🔕</button>
                         <div class="item-chevron">›</div>
                     </div>
                 `;
@@ -1279,12 +1450,17 @@
         // Fetch User state (Sync with Bot's UserSubscriptionManager)
         function loadUserData() {
             if (!userChatId) return;
-            fetch(`/api/user?chat_id=${encodeURIComponent(userChatId)}`)
+            fetch(`/api/user?chat_id=${encodeURIComponent(userChatId)}&_t=${Date.now()}`)
                 .then(r => r.json())
                 .then(data => {
-                    userData = data;
-                    updateHomeRaionUI();
-                    renderSubscriptionsList();
+                    if (data) {
+                        userData = data;
+                        updateHomeRaionUI();
+                        renderSubscriptionsList();
+                        if (activeSelectedRaion) {
+                            updateSheetButtons(activeSelectedRaion);
+                        }
+                    }
                 })
                 .catch(() => {});
         }
@@ -1334,6 +1510,7 @@
                 loadUserData();
                 refreshThreats();
                 setInterval(refreshThreats, 15000);
+                setInterval(loadUserData, 15000);
                 setTimeout(checkUrlParameters, 400);
                 setTimeout(resyncMapSize, 300);
             });

@@ -1277,10 +1277,15 @@ def get_macro_zones_keyboard(chat_id: Optional[int | str] = None, sub_manager: O
             ])
 
     # 2. Interactive WebApp Button
-    webapp_url = os.environ.get("WEBAPP_URL")
+    webapp_url = os.environ.get("WEBAPP_URL") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if webapp_url:
+        webapp_url = webapp_url.strip()
+        if not webapp_url.startswith("http://") and not webapp_url.startswith("https://"):
+            webapp_url = f"https://{webapp_url}"
+        sep = "&" if "?" in webapp_url else "?"
+        user_url = f"{webapp_url}{sep}chat_id={chat_id}" if chat_id else webapp_url
         keyboard.append([
-            {"text": "📱 Відкрити живу інтерактивну мапу", "web_app": {"url": webapp_url}},
+            {"text": "📱 Відкрити живу інтерактивну мапу", "web_app": {"url": user_url}},
         ])
 
     keyboard.extend([
@@ -1413,7 +1418,7 @@ def get_raions_keyboard(region_code: str, raions_status_map: Optional[Dict[str, 
     return {"inline_keyboard": keyboard}
 
 
-def get_raion_horizon_keyboard(region_code: str, raion_idx: int) -> dict:
+def get_raion_horizon_keyboard(region_code: str, raion_idx: int, chat_id: Optional[int | str] = None) -> dict:
     """Builds Telegram Inline Keyboard for horizon selection for a specific raion."""
     reg_meta = ALL_REGIONS.get(region_code, {})
     raions = reg_meta.get("raions", [])
@@ -1421,13 +1426,16 @@ def get_raion_horizon_keyboard(region_code: str, raion_idx: int) -> dict:
 
     keyboard = []
 
-    # Two-way sync: Bot Message -> WebApp focused on this raion
+    # Two-way sync: Bot Message -> WebApp focused on this raion with chat_id
     webapp_url = os.environ.get("WEBAPP_URL") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
     if webapp_url and raion_name:
         webapp_url = webapp_url.strip()
         if not webapp_url.startswith("http://") and not webapp_url.startswith("https://"):
             webapp_url = f"https://{webapp_url}"
-        app_raion_url = f"{webapp_url}?raion={urllib.parse.quote(raion_name)}"
+        sep = "&" if "?" in webapp_url else "?"
+        app_raion_url = f"{webapp_url}{sep}raion={urllib.parse.quote(raion_name)}"
+        if chat_id:
+            app_raion_url += f"&chat_id={chat_id}"
         keyboard.append([
             {"text": f"🗺 Відкрити «{raion_name}» на мапі", "web_app": {"url": app_raion_url}},
         ])
@@ -1460,6 +1468,7 @@ def get_forecast_action_keyboard(
     region_code: str,
     raion_idx: Optional[int],
     horizon_code: str,
+    chat_id: Optional[int | str] = None,
 ) -> dict:
     """Builds action keyboard under the generated forecast."""
     webapp_url = os.environ.get("WEBAPP_URL") or os.environ.get("RAILWAY_STATIC_URL") or os.environ.get("RAILWAY_PUBLIC_DOMAIN")
@@ -1475,7 +1484,10 @@ def get_forecast_action_keyboard(
 
         keyboard = []
         if webapp_url and raion_name:
-            app_raion_url = f"{webapp_url}?raion={urllib.parse.quote(raion_name)}"
+            sep = "&" if "?" in webapp_url else "?"
+            app_raion_url = f"{webapp_url}{sep}raion={urllib.parse.quote(raion_name)}"
+            if chat_id:
+                app_raion_url += f"&chat_id={chat_id}"
             keyboard.append([
                 {"text": f"🗺 Відкрити «{raion_name}» на мапі", "web_app": {"url": app_raion_url}},
             ])
@@ -1498,8 +1510,10 @@ def get_forecast_action_keyboard(
     else:
         keyboard = []
         if webapp_url:
+            sep = "&" if "?" in webapp_url else "?"
+            user_app_url = f"{webapp_url}{sep}chat_id={chat_id}" if chat_id else webapp_url
             keyboard.append([
-                {"text": "📱 Відкрити живу мапу України", "web_app": {"url": webapp_url}},
+                {"text": "📱 Відкрити живу мапу України", "web_app": {"url": user_app_url}},
             ])
         keyboard.extend([
             [
@@ -2338,7 +2352,7 @@ def run_live_polling(token: str):
 
                         res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
                         reply_text = format_interactive_forecast_response(res)
-                        kb = get_raion_horizon_keyboard(r_code, r_idx)
+                        kb = get_raion_horizon_keyboard(r_code, r_idx, chat_id=chat_id)
                         clear_prev_menu()
                         s_res = telegram_api_call(token, "sendMessage", {
                             "chat_id": chat_id,
@@ -2364,7 +2378,7 @@ def run_live_polling(token: str):
                         r_idx = raions_list.index(r_name) if r_name in raions_list else 0
                         res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
                         formatted_msg = format_interactive_forecast_response(res)
-                        kb = get_raion_horizon_keyboard(r_code, r_idx)
+                        kb = get_raion_horizon_keyboard(r_code, r_idx, chat_id=chat_id)
 
                         reply_text = (
                             f"⭐ <b>Район «{r_name}» встановлено як ваш «Мій район»!</b>\n\n"
@@ -2438,7 +2452,7 @@ def run_live_polling(token: str):
                             r_idx = raions_list.index(r_name) if r_name in raions_list else 0
                             res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
                             formatted_msg = format_interactive_forecast_response(res)
-                            kb = get_raion_horizon_keyboard(r_code, r_idx)
+                            kb = get_raion_horizon_keyboard(r_code, r_idx, chat_id=chat_id)
                             s_res = telegram_api_call(token, "sendMessage", {
                                 "chat_id": chat_id,
                                 "text": formatted_msg,
@@ -2545,7 +2559,9 @@ def run_live_polling(token: str):
                             webapp_url = webapp_url.strip()
                             if not webapp_url.startswith("http://") and not webapp_url.startswith("https://"):
                                 webapp_url = f"https://{webapp_url}"
-                            quick_buttons.append([{"text": "📱 Жива інтерактивна карта (WebApp)", "web_app": {"url": webapp_url}}])
+                            sep = "&" if "?" in webapp_url else "?"
+                            user_webapp_url = f"{webapp_url}{sep}chat_id={chat_id}"
+                            quick_buttons.append([{"text": "📱 Жива інтерактивна карта (WebApp)", "web_app": {"url": user_webapp_url}}])
 
                         quick_buttons.extend([
                             [{"text": "📍 Обрати область та район", "callback_data": "menu_zones"}],
@@ -2653,7 +2669,7 @@ def run_live_polling(token: str):
                                     "show_alert": True,
                                 })
                                 # Re-render horizon keyboard with updated state
-                                new_kb = get_raion_horizon_keyboard(region_code, raion_idx)
+                                new_kb = get_raion_horizon_keyboard(region_code, raion_idx, chat_id=chat_id)
                                 update_or_send_message(
                                     token=token,
                                     chat_id=chat_id,
@@ -2686,7 +2702,7 @@ def run_live_polling(token: str):
                             r_idx = raions_list.index(r_name) if r_name in raions_list else 0
                             res = analyzer.analyze_threats_for_region(r_code, "60m", raion_name=r_name)
                             formatted_msg = format_interactive_forecast_response(res)
-                            kb = get_raion_horizon_keyboard(r_code, r_idx)
+                            kb = get_raion_horizon_keyboard(r_code, r_idx, chat_id=chat_id)
                             telegram_api_call(token, "answerCallbackQuery", {"callback_query_id": cq_id})
                             update_or_send_message(
                                 token=token,
@@ -2948,7 +2964,7 @@ def run_live_polling(token: str):
                                     chat_id=chat_id,
                                     message_id=message_id,
                                     text=r_overview,
-                                    reply_markup=get_raion_horizon_keyboard(region_code, raion_idx),
+                                    reply_markup=get_raion_horizon_keyboard(region_code, raion_idx, chat_id=chat_id),
                                     is_photo_message=is_photo_msg,
                                     user_active_menu=user_active_menu,
                                 )
@@ -2966,7 +2982,7 @@ def run_live_polling(token: str):
                                 raion_name = raions[raion_idx]
                                 res = analyzer.analyze_threats_for_region(region_code, horizon_code, raion_name=raion_name)
                                 reply_text = format_interactive_forecast_response(res)
-                                action_keyboard = get_forecast_action_keyboard(region_code, raion_idx, horizon_code)
+                                action_keyboard = get_forecast_action_keyboard(region_code, raion_idx, horizon_code, chat_id=chat_id)
                                 update_or_send_message(
                                     token=token,
                                     chat_id=chat_id,
@@ -2985,7 +3001,7 @@ def run_live_polling(token: str):
                             region_code = "_".join(parts[1:-1])
                             res = analyzer.analyze_threats_for_region(region_code, horizon_code)
                             reply_text = format_interactive_forecast_response(res)
-                            action_keyboard = get_forecast_action_keyboard(region_code, None, horizon_code)
+                            action_keyboard = get_forecast_action_keyboard(region_code, None, horizon_code, chat_id=chat_id)
                             update_or_send_message(
                                 token=token,
                                 chat_id=chat_id,
