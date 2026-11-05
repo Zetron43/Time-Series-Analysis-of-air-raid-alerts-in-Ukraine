@@ -53,13 +53,13 @@ class AirRaidAIAgent:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-3.5-flash-lite",
+        model_name: str = "gemini-2.5-flash",
     ):
         if not api_key:
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
         self.api_key = api_key
-        # Default to stable, high-speed lightweight Gemini Flash Lite model
-        self.model_name = model_name
+        # Default to stable, high-speed lightweight Gemini Flash model
+        self.model_name = os.environ.get("GEMINI_MODEL") or model_name
         self._client = None
         self._init_client()
 
@@ -334,23 +334,44 @@ class AirRaidAIAgent:
             # Context enricher with user chat_id
             augmented_query = f"[User chat_id: {chat_id}]\nЗапит користувача: {user_query}"
 
-            # Invoke Gemini with Automatic Function Calling via Chat session
-            # using thinking_level="low" for fastest, lowest-latency response times
-            chat = self._client.chats.create(
-                model=self.model_name,
-                config=types.GenerateContentConfig(
-                    system_instruction=AGENT_SYSTEM_INSTRUCTION,
-                    tools=tools,
-                    temperature=0.2,
-                    thinking_config=types.ThinkingConfig(thinking_level="low"),
-                ),
-            )
-            response = chat.send_message(augmented_query)
+            # Fallback cascade of models in case of Google server 503 (high demand) or 429
+            candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+            models_to_try = []
+            for m in candidate_models:
+                if m and m not in models_to_try:
+                    models_to_try.append(m)
 
-            if response and response.text:
-                raw_text = response.text.strip()
-                return format_ai_markdown_to_html(raw_text)
-            return "Не вдалося сформувати відповідь. Спробуйте уточнити запит."
+            for idx, model_attempt in enumerate(models_to_try):
+                try:
+                    cfg_kwargs = {
+                        "system_instruction": AGENT_SYSTEM_INSTRUCTION,
+                        "tools": tools,
+                        "temperature": 0.2,
+                    }
+                    if "2.5" in model_attempt or "3." in model_attempt:
+                        cfg_kwargs["thinking_config"] = types.ThinkingConfig(thinking_level="low")
+
+                    chat = self._client.chats.create(
+                        model=model_attempt,
+                        config=types.GenerateContentConfig(**cfg_kwargs),
+                    )
+                    response = chat.send_message(augmented_query)
+
+                    if response and response.text:
+                        raw_text = response.text.strip()
+                        return format_ai_markdown_to_html(raw_text)
+                    return "Не вдалося сформувати відповідь. Спробуйте уточнити запит."
+
+                except Exception as ex:
+                    err_str = str(ex)
+                    print(f"[-] AI Agent error with model {model_attempt}: {err_str}", flush=True)
+                    if any(ind in err_str for ind in ["503", "UNAVAILABLE", "high demand", "429", "RESOURCE_EXHAUSTED"]):
+                        if idx < len(models_to_try) - 1:
+                            print(f"[!] Model {model_attempt} busy (503/429). Switching to fallback model {models_to_try[idx+1]}...", flush=True)
+                            import time; time.sleep(0.3)
+                            continue
+                    raise ex
+
         except Exception as e:
             err_msg = str(e)
             print(f"[-] AI Agent Error during execution: {err_msg}", flush=True)
@@ -366,6 +387,14 @@ class AirRaidAIAgent:
                     "3. Скопіюйте ключ, що починається на <code>AIzaSy...</code>.\n"
                     "4. Оновіть змінну <code>GEMINI_API_KEY</code> на <b>Railway</b> (Variables) або в файлі <code>.env</code>."
                 )
+
+            if any(ind in err_msg for ind in ["503", "UNAVAILABLE", "high demand", "429", "RESOURCE_EXHAUSTED"]):
+                return (
+                    "⏳ <b>Сервери Google Gemini наразі тимчасово перевантажені (помилка 503).</b>\n\n"
+                    "Глобальний сплеск запитів до моделі зазвичай минає за 10–20 секунд.\n"
+                    "Будь ласка, <b>натисніть «🔄 Оновити оцінку» або повторіть запитання за мить</b>, або скористайтеся кнопками швидкого меню нижче 👇"
+                )
+
             return (
                 f"⚠️ <b>Помилка ШІ-агента:</b> {e}\n\n"
                 "Спробуйте скористатися стандартними кнопками меню або уточніть запитання."
@@ -402,18 +431,40 @@ class AirRaidAIAgent:
                 self.manage_user_tracking,
             ]
 
-            response = self._client.models.generate_content(
-                model=self.model_name,
-                contents=[audio_part, prompt_instruction],
-                config=types.GenerateContentConfig(
-                    system_instruction=AGENT_SYSTEM_INSTRUCTION,
-                    tools=tools,
-                    temperature=0.2,
-                ),
-            )
-            if response and response.text:
-                return format_ai_markdown_to_html(response.text.strip())
-            return "🤖 Не вдалося розпізнати голосовий запит. Спробуйте ще раз або напишіть текстом."
+            candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+            models_to_try = []
+            for m in candidate_models:
+                if m and m not in models_to_try:
+                    models_to_try.append(m)
+
+            for idx, model_attempt in enumerate(models_to_try):
+                try:
+                    response = self._client.models.generate_content(
+                        model=model_attempt,
+                        contents=[audio_part, prompt_instruction],
+                        config=types.GenerateContentConfig(
+                            system_instruction=AGENT_SYSTEM_INSTRUCTION,
+                            tools=tools,
+                            temperature=0.2,
+                        ),
+                    )
+                    if response and response.text:
+                        return format_ai_markdown_to_html(response.text.strip())
+                    return "🤖 Не вдалося розпізнати голосовий запит. Спробуйте ще раз або напишіть текстом."
+                except Exception as ex:
+                    err_str = str(ex)
+                    if any(ind in err_str for ind in ["503", "UNAVAILABLE", "high demand", "429"]):
+                        if idx < len(models_to_try) - 1:
+                            import time; time.sleep(0.3)
+                            continue
+                    raise ex
+
         except Exception as e:
             print(f"[-] AI Agent voice processing error: {e}", flush=True)
+            err_msg = str(e)
+            if any(ind in err_msg for ind in ["503", "UNAVAILABLE", "high demand", "429"]):
+                return (
+                    "⏳ <b>Сервери розпізнавання Google наразі тимчасово перевантажені.</b>\n\n"
+                    "Спробуйте надіслати голосове повідомлення ще раз через кілька секунд або скористайтеся текстовим меню."
+                )
             return f"⚠️ Вибачте, виникла помилка під час обробки голосового повідомлення: {e}"
