@@ -53,7 +53,7 @@ class AirRaidAIAgent:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-2.5-flash",
+        model_name: str = "gemini-3.5-flash",
     ):
         if not api_key:
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -334,8 +334,14 @@ class AirRaidAIAgent:
             # Context enricher with user chat_id
             augmented_query = f"[User chat_id: {chat_id}]\nЗапит користувача: {user_query}"
 
-            # Fallback cascade of models in case of Google server 503 (high demand) or 429
-            candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+            # Fallback cascade of models in case of 503, 429, or deprecated 404 models
+            candidate_models = [
+                self.model_name,
+                "gemini-3.5-flash",
+                "gemini-flash-lite-latest",
+                "gemini-3.8-flash",
+                "gemini-flash-latest",
+            ]
             models_to_try = []
             for m in candidate_models:
                 if m and m not in models_to_try:
@@ -365,9 +371,10 @@ class AirRaidAIAgent:
                 except Exception as ex:
                     err_str = str(ex)
                     print(f"[-] AI Agent error with model {model_attempt}: {err_str}", flush=True)
-                    if any(ind in err_str for ind in ["503", "UNAVAILABLE", "high demand", "429", "RESOURCE_EXHAUSTED"]):
+                    retry_indicators = ["503", "UNAVAILABLE", "high demand", "429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "no longer available"]
+                    if any(ind in err_str for ind in retry_indicators):
                         if idx < len(models_to_try) - 1:
-                            print(f"[!] Model {model_attempt} busy (503/429). Switching to fallback model {models_to_try[idx+1]}...", flush=True)
+                            print(f"[!] Model {model_attempt} unavailable. Switching to fallback model {models_to_try[idx+1]}...", flush=True)
                             import time; time.sleep(0.3)
                             continue
                     raise ex
@@ -431,7 +438,13 @@ class AirRaidAIAgent:
                 self.manage_user_tracking,
             ]
 
-            candidate_models = [self.model_name, "gemini-2.5-flash", "gemini-2.0-flash", "gemini-1.5-flash"]
+            candidate_models = [
+                self.model_name,
+                "gemini-3.5-flash",
+                "gemini-flash-lite-latest",
+                "gemini-3.8-flash",
+                "gemini-flash-latest",
+            ]
             models_to_try = []
             for m in candidate_models:
                 if m and m not in models_to_try:
@@ -453,7 +466,8 @@ class AirRaidAIAgent:
                     return "🤖 Не вдалося розпізнати голосовий запит. Спробуйте ще раз або напишіть текстом."
                 except Exception as ex:
                     err_str = str(ex)
-                    if any(ind in err_str for ind in ["503", "UNAVAILABLE", "high demand", "429"]):
+                    retry_indicators = ["503", "UNAVAILABLE", "high demand", "429", "RESOURCE_EXHAUSTED", "404", "NOT_FOUND", "no longer available"]
+                    if any(ind in err_str for ind in retry_indicators):
                         if idx < len(models_to_try) - 1:
                             import time; time.sleep(0.3)
                             continue
