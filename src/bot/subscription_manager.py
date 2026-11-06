@@ -80,12 +80,17 @@ class UserSubscriptionManager:
             try:
                 p = Path(self.file_path)
                 p.parent.mkdir(parents=True, exist_ok=True)
-                with open(self.file_path, "w", encoding="utf-8") as f:
+                # Atomic file write: write to temp file then atomic replace to prevent corruption on crash
+                tmp_path = p.with_name(f"{p.name}.tmp_{os.getpid()}_{threading.get_ident()}")
+                with open(tmp_path, "w", encoding="utf-8") as f:
                     json.dump(self._subscriptions, f, ensure_ascii=False, indent=2)
+                    f.flush()
+                    os.fsync(f.fileno())
+                os.replace(tmp_path, self.file_path)
                 if p.exists():
                     self._last_mtime = p.stat().st_mtime
             except Exception as e:
-                print(f"[-] Error saving subscriptions: {e}", flush=True)
+                print(f"[-] Error saving subscriptions atomically: {e}", flush=True)
 
     def add_subscription(self, chat_id: int | str, raion_name: str) -> bool:
         """Adds a raion to user's tracked list. Returns True if newly added."""

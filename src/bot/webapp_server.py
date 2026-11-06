@@ -12,6 +12,7 @@ Serves:
 """
 
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 import json
 import os
 import re
@@ -27,7 +28,17 @@ from src.bot.border_filter import is_point_in_ukraine
 
 BASE_DIR = Path(__file__).resolve().parents[2]
 WEBAPP_HTML_PATH = BASE_DIR / "rendering" / "webapp" / "index.html"
+if not WEBAPP_HTML_PATH.exists():
+    candidate_html = BASE_DIR / "Time Series Analysis of air raid alerts in Ukraine" / "rendering" / "webapp" / "index.html"
+    if candidate_html.exists():
+        WEBAPP_HTML_PATH = candidate_html
+
+# Robust lookup for GeoJSON
 GEOJSON_PATH = BASE_DIR / "data" / "ukraine_raions.geojson"
+if not GEOJSON_PATH.exists():
+    candidate_geo = BASE_DIR / "Time Series Analysis of air raid alerts in Ukraine" / "data" / "ukraine_raions.geojson"
+    if candidate_geo.exists():
+        GEOJSON_PATH = candidate_geo
 
 # Pre-load GeoJSON in memory for ultra-fast serving
 _CACHED_GEOJSON_BYTES: Optional[bytes] = None
@@ -39,6 +50,12 @@ if GEOJSON_PATH.exists():
         print(f"[WebAppServer] Error reading GeoJSON: {e}")
 
 _sub_manager = UserSubscriptionManager()
+
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    """High-concurrency HTTP server executing each client request in a separate thread."""
+    daemon_threads = True
+    allow_reuse_address = True
 
 
 class WebAppRequestHandler(BaseHTTPRequestHandler):
@@ -430,15 +447,15 @@ class WebAppServer:
     def __init__(self, port: int = 8080, host: str = "0.0.0.0"):
         self.port = int(os.environ.get("PORT", port))
         self.host = host
-        self._server: Optional[HTTPServer] = None
+        self._server: Optional[ThreadedHTTPServer] = None
         self._thread: Optional[threading.Thread] = None
 
     def start(self):
         try:
-            self._server = HTTPServer((self.host, self.port), WebAppRequestHandler)
+            self._server = ThreadedHTTPServer((self.host, self.port), WebAppRequestHandler)
             self._thread = threading.Thread(target=self._server.serve_forever, daemon=True, name="WebAppServer")
             self._thread.start()
-            print(f"[+] Telegram WebApp Server started on http://{self.host}:{self.port}/", flush=True)
+            print(f"[+] Multi-threaded WebApp Server started on http://{self.host}:{self.port}/", flush=True)
         except Exception as e:
             print(f"[-] Could not bind WebApp Server on port {self.port}: {e}", flush=True)
 

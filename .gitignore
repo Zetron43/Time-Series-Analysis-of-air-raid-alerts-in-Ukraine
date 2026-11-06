@@ -5,8 +5,10 @@ ENV/
 
 # Environment and sensitive keys
 .env
+.env.*
+!*.example
+*.env.txt
 *.env.local
-s.env.txt
 
 # Python bytecode & cache
 __pycache__/
@@ -31,4 +33,3 @@ rendering/live_threats_map.png
 project_dialogue_log.docx
 project_dialogue_log.txt
 *.docx
-

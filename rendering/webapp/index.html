@@ -57,7 +57,7 @@
         /* Top Bar matching BotFather style (Image 2) */
         .app-header {
             background-color: var(--bg-color);
-            padding: 10px 16px 8px 16px;
+            padding: calc(10px + env(safe-area-inset-top, 0px)) 16px 8px 16px;
             display: flex;
             align-items: center;
             justify-content: space-between;
@@ -410,9 +410,10 @@
         .btn-secondary { background: var(--card-bg); color: var(--text-color); border: 1px solid var(--border-color); }
         .btn-full { grid-column: span 2; }
 
-        /* Bottom Tab Navigation Bar */
+        /* Bottom Tab Navigation Bar with iOS safe area inset support */
         .bottom-nav {
-            height: var(--tab-height);
+            height: calc(var(--tab-height) + env(safe-area-inset-bottom, 0px));
+            padding-bottom: env(safe-area-inset-bottom, 0px);
             background-color: var(--bg-color);
             border-top: 1px solid var(--border-color);
             display: flex;
