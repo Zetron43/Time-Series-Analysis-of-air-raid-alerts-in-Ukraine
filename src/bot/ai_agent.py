@@ -53,7 +53,7 @@ class AirRaidAIAgent:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        model_name: str = "gemini-3.5-flash",
+        model_name: str = "gemini-3.8-flash",
     ):
         if not api_key:
             api_key = os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")
@@ -337,10 +337,10 @@ class AirRaidAIAgent:
             # Fallback cascade of models in case of 503, 429, or deprecated 404 models
             candidate_models = [
                 self.model_name,
-                "gemini-3.5-flash",
-                "gemini-flash-lite-latest",
                 "gemini-3.8-flash",
+                "gemini-3.5-flash",
                 "gemini-flash-latest",
+                "gemini-flash-lite-latest",
             ]
             models_to_try = []
             for m in candidate_models:
@@ -440,10 +440,10 @@ class AirRaidAIAgent:
 
             candidate_models = [
                 self.model_name,
-                "gemini-3.5-flash",
-                "gemini-flash-lite-latest",
                 "gemini-3.8-flash",
+                "gemini-3.5-flash",
                 "gemini-flash-latest",
+                "gemini-flash-lite-latest",
             ]
             models_to_try = []
             for m in candidate_models:
