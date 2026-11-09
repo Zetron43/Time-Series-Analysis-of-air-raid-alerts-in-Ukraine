@@ -297,16 +297,20 @@ def get_forecast_action_keyboard(
 
 def get_mapall_action_keyboard(region_code: str = "kyiv", horizon_code: str = "15m") -> dict:
     """Builds interactive action keyboard under the all-Ukraine radar threat map."""
+    def h_btn(code: str, label: str) -> dict:
+        prefix = "🔘 " if code == horizon_code else "⏱ "
+        return {"text": f"{prefix}{label}", "callback_data": f"mapall_{region_code}_{code}"}
+
     keyboard = [
         [
             {"text": "🔄 Оновити карту", "callback_data": f"mapall_{region_code}_{horizon_code}"},
             {"text": "🤖 ШІ-Огляд загроз в Україні", "callback_data": "ai_map"},
         ],
         [
-            {"text": "⏱ 15 хв", "callback_data": f"mapall_{region_code}_15m"},
-            {"text": "⏱ 30 хв", "callback_data": f"mapall_{region_code}_30m"},
-            {"text": "⏱ 1 год", "callback_data": f"mapall_{region_code}_1h"},
-            {"text": "⏱ 2 год", "callback_data": f"mapall_{region_code}_2h"},
+            h_btn("15m", "15 хв"),
+            h_btn("30m", "30 хв"),
+            h_btn("1h", "1 год"),
+            h_btn("2h", "2 год"),
         ],
         [
             {"text": "📍 Меню областей", "callback_data": "menu_zones"},

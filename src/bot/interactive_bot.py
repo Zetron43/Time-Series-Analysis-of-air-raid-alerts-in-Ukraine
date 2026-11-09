@@ -1301,20 +1301,35 @@ def format_tracking_menu_text(chat_id: int | str, sub_manager: UserSubscriptionM
     return "\n".join(lines)
 
 
-def build_map_caption(horizon_minutes: int, raion_name: Optional[str] = None) -> str:
-    """Builds concise caption for sent threat map."""
+def build_map_caption(
+    horizon_minutes: int,
+    raion_name: Optional[str] = None,
+    projected_raions: Optional[List[Tuple[str, float]]] = None,
+) -> str:
+    """Builds concise caption for sent threat map with dynamic projected threat list."""
     now_kyiv = datetime.now(KYIV_TZ)
     now_str = now_kyiv.strftime("%H:%M:%S")
     target_str = (now_kyiv + timedelta(minutes=horizon_minutes)).strftime("%H:%M")
     raion_tag = f"📍 <b>Район:</b> {raion_name}\n" if raion_name else ""
+
+    proj_lines = ""
+    if projected_raions:
+        sample_items = [f"{name} (~{round(eta)} хв)" for name, eta in projected_raions[:5]]
+        sample_str = ", ".join(sample_items)
+        more = f" та ще {len(projected_raions) - 5} районів" if len(projected_raions) > 5 else ""
+        proj_lines = f"🟠 <b>На векторі підльоту (+{horizon_minutes} хв):</b>\n   ↳ {sample_str}{more}\n\n"
+    else:
+        proj_lines = f"🟠 <b>Векторний підліт (+{horizon_minutes} хв):</b> Нових прямих підльотів не зафіксовано.\n\n"
+
     return (
         f"🗺 <b>ТАКТИЧНА КАРТА ПОВІТРЯНИХ ЗАГРОЗ УКРАЇНИ</b>\n"
         f"{raion_tag}"
-        f"🕒 <b>Час:</b> {now_str} (Київ) | ⏳ <b>Прогноз до:</b> {target_str} (+{horizon_minutes} хв)\n\n"
-        f"🔴 <b>Червоний:</b> Ракетна загроза / тривога\n"
-        f"🟡 <b>Жовтий:</b> Загроза БпЛА / підвищена готовність\n"
-        f"🛸 <b>Точки:</b> Поточне положення ударних дронів\n"
-        f"➡️ <b>Пунктир:</b> Очікуваний сектор руху через +{horizon_minutes} хв (~180 км/год)\n\n"
+        f"🕒 <b>Час:</b> {now_str} (Київ) | ⏳ <b>Горизонт:</b> +{horizon_minutes} хв (до {target_str})\n\n"
+        f"🔴 <b>Червоний:</b> Офіційна повітряна тривога (сирени)\n"
+        f"🟡 <b>Жовтий:</b> Загроза ударних дронів над районом\n"
+        f"🟠 <b>Помаранчевий:</b> Прогнозована загроза (підліт курсом за +{horizon_minutes} хв)\n\n"
+        f"{proj_lines}"
+        f"➡️ <b>Маршрут БпЛА:</b> Вектор руху (~180 км/год) з кінцевою точкою на +{horizon_minutes} хв\n\n"
         f"📡 <i>Джерела: alerts.in.ua + neptun.in.ua + dimap.live</i>"
     )
 
@@ -2727,7 +2742,8 @@ def run_live_polling(token: str):
                             hor_mins = AVAILABLE_HORIZONS.get(horizon_code, {"minutes": 60})["minutes"]
 
                             map_bytes = threat_syncer.get_tactical_map_bytes(horizon_minutes=hor_mins, highlight_raion=raion_name)
-                            caption = build_map_caption(hor_mins, raion_name=raion_name)
+                            proj_list = threat_syncer.get_projected_raions_list(hor_mins)
+                            caption = build_map_caption(hor_mins, raion_name=raion_name, projected_raions=proj_list)
                             map_action_kb = {
                                 "inline_keyboard": [
                                     [
@@ -2756,10 +2772,12 @@ def run_live_polling(token: str):
                     # Map rendering for whole country / oblast
                     elif data.startswith("mapall_"):
                         parts = data.split("_")
+                        region_code = parts[1] if len(parts) >= 3 else "kyiv"
                         horizon_code = parts[-1] if len(parts) >= 3 else "15m"
-                        hor_mins = AVAILABLE_HORIZONS.get(horizon_code, {"minutes": 60})["minutes"]
+                        hor_mins = AVAILABLE_HORIZONS.get(horizon_code, {"minutes": 15})["minutes"]
                         map_bytes = threat_syncer.get_tactical_map_bytes(horizon_minutes=hor_mins)
-                        caption = build_map_caption(hor_mins)
+                        proj_list = threat_syncer.get_projected_raions_list(hor_mins)
+                        caption = build_map_caption(hor_mins, projected_raions=proj_list)
                         # Delete prior message so that map replaces it cleanly
                         try:
                             telegram_api_call(token, "deleteMessage", {"chat_id": chat_id, "message_id": message_id})
@@ -2770,7 +2788,7 @@ def run_live_polling(token: str):
                             chat_id,
                             map_bytes,
                             caption=caption,
-                            reply_markup=get_mapall_action_keyboard(horizon_code=horizon_code),
+                            reply_markup=get_mapall_action_keyboard(region_code=region_code, horizon_code=horizon_code),
                         )
                         if p_res.get("ok"):
                             user_active_menu[cid_str] = p_res["result"]["message_id"]

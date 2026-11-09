@@ -75,10 +75,6 @@ class SharedThreatState:
                 age = time.time() - self.cached_map_timestamps.get(horizon_minutes, 0)
                 if age <= max_age_seconds:
                     return self.cached_maps[horizon_minutes]
-            # Fallback to any warm map if exists
-            if self.cached_maps:
-                any_key = next(iter(self.cached_maps))
-                return self.cached_maps[any_key]
             return None
 
     def get_snapshot(self) -> Dict[str, Any]:
@@ -259,6 +255,21 @@ class BackgroundThreatSyncer:
         threats = snap["raw_threats"]
         return self.eta_calculator.calculate_eta_for_raion(raion_name, threats)
 
+    def get_projected_raions_list(self, horizon_minutes: int = 60) -> List[Tuple[str, float]]:
+        """Returns list of (raion_name, min_eta_minutes) projected to be reached within horizon."""
+        snap = self.state.get_snapshot()
+        threats = snap.get("raw_threats", [])
+        if not threats:
+            return []
+        projected = []
+        for r_name in self.eta_calculator.centroids.keys():
+            res = self.eta_calculator.calculate_eta_for_raion(r_name, threats)
+            if res.get("has_direct_threat") and res.get("min_eta_minutes") is not None:
+                if res["min_eta_minutes"] <= horizon_minutes:
+                    projected.append((r_name.capitalize(), res["min_eta_minutes"]))
+        projected.sort(key=lambda x: x[1])
+        return projected
+
     def get_tactical_map_bytes(
         self,
         horizon_minutes: int = 60,
@@ -276,11 +287,16 @@ class BackgroundThreatSyncer:
             from rendering.alert_map_renderer import AlertMapRenderer
             self._map_renderer = AlertMapRenderer()
 
-        return self._map_renderer.render_map(
+        snapshot = self.state.get_snapshot()
+        map_bytes = self._map_renderer.render_map(
             horizon_minutes=horizon_minutes,
             highlight_raion=highlight_raion,
-            cached_snapshot=self.state.get_snapshot(),
+            cached_snapshot=snapshot,
         )
+        if not highlight_raion and map_bytes:
+            threat_hash = self.state.cached_map_hash
+            self.state.set_cached_map(horizon_minutes, map_bytes, threat_hash)
+        return map_bytes
 
 
 # Global singleton access
