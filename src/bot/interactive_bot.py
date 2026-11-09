@@ -2210,7 +2210,9 @@ def run_live_polling(token: str):
                         continue
 
                     # Command: Sources Benchmark & Metrics
-                    if text in ["/metrics", "/benchmark", "/джерела", "📊 Метрики"]:
+                    if text.lower().strip() in [
+                        "/metrics", "/metric", "/benchmark", "/джерела", "📊 метрики", "метрика", "метрики", "метрик", "бенчмарк"
+                    ] or text.strip() in ["/metrics", "/benchmark", "/джерела", "📊 Метрики"]:
                         metrics_summary = format_sources_benchmark_summary()
                         clear_prev_menu()
                         res = telegram_api_call(token, "sendMessage", {
@@ -2219,8 +2221,9 @@ def run_live_polling(token: str):
                             "parse_mode": "HTML",
                             "reply_markup": {
                                 "inline_keyboard": [
+                                    [{"text": "🔄 Оновити показники", "callback_data": "menu_metrics"}],
                                     [{"text": "🗺 Карта тривог України", "callback_data": "mapall_kyiv_15m"}],
-                                    [{"text": "📍 Обрати область та район", "callback_data": "menu_zones"}],
+                                    [{"text": "📍 До вибору областей", "callback_data": "menu_zones"}],
                                 ]
                             },
                         })
@@ -2472,6 +2475,7 @@ def run_live_polling(token: str):
                             text=metrics_summary,
                             reply_markup={
                                 "inline_keyboard": [
+                                    [{"text": "🔄 Оновити показники", "callback_data": "menu_metrics"}],
                                     [{"text": "🗺 Карта тривог України", "callback_data": "mapall_kyiv_15m"}],
                                     [{"text": "📍 До вибору областей", "callback_data": "menu_zones"}],
                                 ]
@@ -2752,10 +2756,13 @@ def run_live_polling(token: str):
                                     ],
                                     [
                                         {"text": "⏱ Прогноз", "callback_data": f"hrn_{region_code}_{raion_idx}_{horizon_code}"},
-                                        {"text": "🔔 Слідкувати", "callback_data": f"subadd_{region_code}_{raion_idx}"},
+                                        {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
                                     ],
                                     [
+                                        {"text": "🔔 Слідкувати", "callback_data": f"subadd_{region_code}_{raion_idx}"},
                                         {"text": "🏘 До районів", "callback_data": f"reg_{region_code}"},
+                                    ],
+                                    [
                                         {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
                                     ],
                                 ]

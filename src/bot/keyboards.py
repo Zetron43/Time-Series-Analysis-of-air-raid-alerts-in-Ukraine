@@ -58,6 +58,10 @@ def get_macro_zones_keyboard(
             {"text": "🧭 Захід України", "callback_data": "zone_west"},
             {"text": "🗺 Усі області (А-Я)", "callback_data": "zone_all"},
         ],
+        [
+            {"text": "🗺 Карта тривог України", "callback_data": "mapall_kyiv_15m"},
+            {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
+        ],
     ])
     return {"inline_keyboard": keyboard}
 
@@ -74,7 +78,10 @@ def get_zone_regions_keyboard(zone_key: str) -> dict:
             for c in codes[i : i + 2]:
                 row.append({"text": f"📍 {ALL_REGIONS[c]['name']}", "callback_data": f"reg_{c}"})
             keyboard.append(row)
-    keyboard.append([{"text": "⬅️ Назад до макрорегіонів", "callback_data": "menu_zones"}])
+    keyboard.append([
+        {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
+        {"text": "⬅️ Назад до макрорегіонів", "callback_data": "menu_zones"},
+    ])
     return {"inline_keyboard": keyboard}
 
 
@@ -89,7 +96,10 @@ def get_all_regions_keyboard() -> dict:
         for c in codes[i : i + 2]:
             row.append({"text": f"📍 {ALL_REGIONS[c]['name']}", "callback_data": f"reg_{c}"})
         keyboard.append(row)
-    keyboard.append([{"text": "⬅️ Назад до макрорегіонів", "callback_data": "menu_zones"}])
+    keyboard.append([
+        {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
+        {"text": "⬅️ Назад до макрорегіонів", "callback_data": "menu_zones"},
+    ])
     return {"inline_keyboard": keyboard}
 
 
@@ -115,6 +125,7 @@ def get_horizon_keyboard(region_code: str) -> dict:
         ],
         [
             {"text": "🤖 Запитати ШІ про область", "callback_data": f"ai_reg_{region_code}"},
+            {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
         ],
         [
             {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_15m"},
@@ -170,10 +181,11 @@ def get_raions_keyboard(region_code: str, raions_status_map: Optional[Dict[str, 
         {"text": "🌐 Вся область (зведення)", "callback_data": f"regall_{region_code}"},
     ])
     keyboard.append([
-        {"text": "🗺 Карта тривог України", "callback_data": f"mapall_{region_code}_15m"},
-        {"text": "⬅️ Назад до областей", "callback_data": zone_code},
+        {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_15m"},
+        {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
     ])
     keyboard.append([
+        {"text": "⬅️ Назад до областей", "callback_data": zone_code},
         {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
     ])
     return {"inline_keyboard": keyboard}
@@ -213,6 +225,7 @@ def get_raion_horizon_keyboard(region_code: str, raion_idx: int, chat_id: Option
         ],
         [
             {"text": "🤖 Запитати ШІ про цей район", "callback_data": f"ai_rn_{region_code}_{raion_idx}"},
+            {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
         ],
         [
             {"text": "🗺 Статична карта (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_15m"},
@@ -262,13 +275,16 @@ def get_forecast_action_keyboard(
             ],
             [
                 {"text": "🗺 Статична карта (з БпЛА)", "callback_data": f"map_{region_code}_{raion_idx}_{horizon_code}"},
-                {"text": "⭐ Зробити моїм районом", "callback_data": f"sethome_{region_code}_{raion_idx}"},
+                {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
             ],
             [
+                {"text": "⭐ Зробити моїм районом", "callback_data": f"sethome_{region_code}_{raion_idx}"},
                 {"text": "🔔 Слідкувати за районом", "callback_data": f"subadd_{region_code}_{raion_idx}"},
-                {"text": "⏱ Інший час", "callback_data": f"rn_{region_code}_{raion_idx}"},
             ],
-            [{"text": "📍 Змінити область", "callback_data": "menu_zones"}],
+            [
+                {"text": "⏱ Інший час", "callback_data": f"rn_{region_code}_{raion_idx}"},
+                {"text": "📍 Змінити область", "callback_data": "menu_zones"},
+            ],
         ])
     else:
         keyboard = []
@@ -285,10 +301,13 @@ def get_forecast_action_keyboard(
             ],
             [
                 {"text": "🗺 Статична карта (з БпЛА)", "callback_data": f"mapall_{region_code}_{horizon_code}"},
-                {"text": "🏘 Обрати конкретний район", "callback_data": f"reg_{region_code}"},
+                {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
             ],
             [
+                {"text": "🏘 Обрати конкретний район", "callback_data": f"reg_{region_code}"},
                 {"text": "⏱ Інший час", "callback_data": f"regall_{region_code}"},
+            ],
+            [
                 {"text": "📍 Змінити область", "callback_data": "menu_zones"},
             ],
         ])
@@ -314,6 +333,9 @@ def get_mapall_action_keyboard(region_code: str = "kyiv", horizon_code: str = "1
         ],
         [
             {"text": "📍 Меню областей", "callback_data": "menu_zones"},
+            {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
+        ],
+        [
             {"text": "🔔 Мої підписки", "callback_data": "menu_tracking"},
         ],
     ]
@@ -333,6 +355,9 @@ def get_tracking_menu_keyboard(chat_id: int | str, sub_manager: UserSubscription
     ])
     keyboard.append([
         {"text": "🗺 Карта тривог України", "callback_data": "mapall_kyiv_15m"},
+        {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
+    ])
+    keyboard.append([
         {"text": "⬅️ Меню регіонів", "callback_data": "menu_zones"},
     ])
     return {"inline_keyboard": keyboard}
