@@ -7,11 +7,13 @@ Features:
 4. Integrates KinematicETACalculator directly for instantaneous raion ETA lookups.
 """
 
+from __future__ import annotations
+
 import re
 import threading
 import time
 from datetime import datetime
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 from pathlib import Path
 
 from src.ingestion.alerts_live_client import AlertsInUaLiveClient, KYIV_TZ
