@@ -124,15 +124,18 @@ def get_horizon_keyboard(region_code: str) -> dict:
             {"text": "⏱ 2 години", "callback_data": f"hor_{region_code}_2h"},
         ],
         [
+            {"text": "🔔 Слідкувати за всією областю", "callback_data": f"subreg_{region_code}"},
             {"text": "🤖 Запитати ШІ про область", "callback_data": f"ai_reg_{region_code}"},
-            {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
         ],
         [
             {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_15m"},
-            {"text": "🏘 Обрати конкретний район", "callback_data": f"reg_{region_code}"},
+            {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
         ],
         [
+            {"text": "🏘 Обрати конкретний район", "callback_data": f"reg_{region_code}"},
             {"text": "⬅️ Назад до вибору області", "callback_data": zone_code},
+        ],
+        [
             {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
         ],
     ]
@@ -177,15 +180,18 @@ def get_raions_keyboard(region_code: str, raions_status_map: Optional[Dict[str, 
         keyboard.append(row)
 
     keyboard.append([
-        {"text": "🤖 Запитати ШІ про область", "callback_data": f"ai_reg_{region_code}"},
+        {"text": "🔔 Слідкувати за всією областю", "callback_data": f"subreg_{region_code}"},
         {"text": "🌐 Вся область (зведення)", "callback_data": f"regall_{region_code}"},
     ])
     keyboard.append([
-        {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_15m"},
+        {"text": "🤖 Запитати ШІ про область", "callback_data": f"ai_reg_{region_code}"},
         {"text": "📊 Метрики джерел", "callback_data": "menu_metrics"},
     ])
     keyboard.append([
+        {"text": "🗺 Карта загроз (з БпЛА)", "callback_data": f"mapall_{region_code}_15m"},
         {"text": "⬅️ Назад до областей", "callback_data": zone_code},
+    ])
+    keyboard.append([
         {"text": "📍 Усі регіони", "callback_data": "menu_zones"},
     ])
     return {"inline_keyboard": keyboard}

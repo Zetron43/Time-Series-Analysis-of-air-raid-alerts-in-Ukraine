@@ -404,6 +404,13 @@ ALL_REGIONS = {
 
 AVAILABLE_REGIONS = {code: data["name"] for code, data in ALL_REGIONS.items()}
 
+RAION_TO_OBLAST: Dict[str, str] = {}
+for _rc, _rm in ALL_REGIONS.items():
+    _on = _rm.get("name", "")
+    for _rn in _rm.get("raions", []):
+        RAION_TO_OBLAST[_rn] = _on
+        RAION_TO_OBLAST[_rn.lower()] = _on
+
 MACRO_ZONES = {
     "zone_north": {
         "title": "🏙 Столиця та Північ",
@@ -797,18 +804,69 @@ class ThreatAnalyzer:
                     raion_item["active"] = False
                     raion_item["warning_active"] = False
 
-            # Neighboring raions alarm check
-            neighbors = self.neighbors_map.get(raion_name, [])
+            target_neighbors = self.neighbors_map.get(raion_name, [])
+        else:
+            # Whole-oblast: collect all external border raions surrounding this oblast
+            region_raions_set = set(raion_names)
+            outer_neighbors = set()
+            for r in raion_names:
+                for nb in self.neighbors_map.get(r, []):
+                    if nb not in region_raions_set:
+                        outer_neighbors.add(nb)
+            target_neighbors = sorted(outer_neighbors)
+
+        # Cross-oblast & intra-oblast neighboring raions alarm check
+        if target_neighbors:
             try:
                 nep_alerts = self.neptun_client.get_alerts()
-                nep_raion_alerts = {a.get("name", "").lower().replace(" район", "").strip(): a.get("level", "yellow").upper() for a in nep_alerts.get("raions", [])}
-                for nb in neighbors:
+                nep_raion_alerts = {
+                    a.get("name", "").lower().replace(" район", "").strip(): a.get("level", "yellow").upper()
+                    for a in nep_alerts.get("raions", [])
+                }
+
+                # Retrieve all-raions status across Ukraine
+                all_raions_status = {}
+                if self.threat_syncer and getattr(self.threat_syncer, "state", None) and self.threat_syncer.state.is_warm:
+                    all_raions_status = self.threat_syncer.state.get_snapshot().get("alerts_raions", {})
+                if not all_raions_status:
+                    try:
+                        all_raions_status = self.live_client.get_all_raions_live_status()
+                    except Exception:
+                        all_raions_status = {}
+
+                for nb in target_neighbors:
                     nb_clean = nb.lower().replace(" район", "").strip()
                     nb_lvl = None
-                    for r in live_status.get("raions", []):
-                        if r["name"].lower() == nb.lower() and r.get("active"):
-                            nb_lvl = r.get("type", "YELLOW")
-                            break
+
+                    # 1. Background ThreatSyncer check (< 0.001s)
+                    if self.threat_syncer:
+                        try:
+                            syncer_st = self.threat_syncer.get_raion_status(nb)
+                            if syncer_st.get("active"):
+                                nb_lvl = syncer_st.get("level", "RED").upper()
+                        except Exception:
+                            pass
+
+                    # 2. Ukraine-wide raions status from alerts.in.ua (covers cross-oblast neighbors)
+                    if not nb_lvl and all_raions_status:
+                        r_info = all_raions_status.get(nb)
+                        if r_info and r_info.get("active"):
+                            nb_lvl = r_info.get("level", "RED").upper()
+                        else:
+                            for r_full, r_val in all_raions_status.items():
+                                r_c = r_full.lower().replace(" район", "").strip()
+                                if (nb_clean == r_c or nb_clean in r_c) and r_val.get("active"):
+                                    nb_lvl = r_val.get("level", "RED").upper()
+                                    break
+
+                    # 3. Fallback: check current region's live_status (intra-oblast neighbor)
+                    if not nb_lvl:
+                        for r in live_status.get("raions", []):
+                            if r["name"].lower() == nb.lower() and r.get("active"):
+                                nb_lvl = r.get("type", "YELLOW")
+                                break
+
+                    # 4. Check Neptun radar alerts (drone threat)
                     if not nb_lvl and nb_clean in nep_raion_alerts:
                         nb_lvl = nep_raion_alerts[nb_clean]
 
@@ -939,7 +997,8 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
             ])
             for nb, lvl in neighbors_alarms[:5]:
                 nb_emoji = "🔴" if lvl == "RED" else ("🟡" if lvl == "YELLOW" else "🟠")
-                lines.append(f"• {nb_emoji} <b>{nb}</b> — {lvl} рівень")
+                obl_str = f" ({RAION_TO_OBLAST[nb]})" if nb in RAION_TO_OBLAST else ""
+                lines.append(f"• {nb_emoji} <b>{nb}</b>{obl_str} — {lvl} рівень")
         else:
             lines.extend([
                 "",
@@ -1054,6 +1113,16 @@ def format_interactive_forecast_response(data: Dict[str, Any]) -> str:
     if data.get("prob_explanation"):
         lines.append(f"💡 <i>{data['prob_explanation']}</i>")
 
+    if not live["is_alert"] and neighbors_alarms:
+        lines.extend([
+            "",
+            f"⚠️ <b>ТРИВОГА У СУСІДНІХ ПРИЛЕГЛИХ РАЙОНАХ ({len(neighbors_alarms)}):</b>",
+        ])
+        for nb, lvl in neighbors_alarms[:6]:
+            obl_str = f" ({RAION_TO_OBLAST[nb]})" if nb in RAION_TO_OBLAST else ""
+            nb_emoji = "🔴" if lvl == "RED" else ("🟡" if lvl == "YELLOW" else "🟠")
+            lines.append(f"• {nb_emoji} <b>{nb}</b>{obl_str} — {lvl} рівень")
+
     # Per-raion status breakdown
     raions = live.get("raions", [])
     if raions:
@@ -1143,7 +1212,8 @@ def format_raion_selection_overview(region_code: str, raion_name: str) -> str:
         ])
         for nb, lvl in nb_alarms[:5]:
             nb_emoji = "🔴" if lvl == "RED" else ("🟡" if lvl == "YELLOW" else "🟠")
-            lines.append(f"• {nb_emoji} <b>{nb}</b> — {lvl} рівень")
+            obl_str = f" ({RAION_TO_OBLAST[nb]})" if nb in RAION_TO_OBLAST else ""
+            lines.append(f"• {nb_emoji} <b>{nb}</b>{obl_str} — {lvl} рівень")
     else:
         lines.append("🏘 <b>Сусідні райони:</b> обстановка навколо спокійна (тривог немає)")
 
@@ -1670,7 +1740,12 @@ def run_subscriptions_watcher(
                         nb_count = len(nb_alarms)
                         event_key = f"neighbor_alert_{nb_count}"
                         if sub_manager.should_notify(cid, raion_name, event_key, cooldown_minutes=30):
-                            nb_list_str = "\n".join([f"• {'🔴' if lvl=='RED' else '🟡'} <b>{n}</b> ({lvl})" for n, lvl in nb_alarms[:4]])
+                            nb_lines = []
+                            for n, lvl in nb_alarms[:4]:
+                                emoji = "🔴" if lvl == "RED" else "🟡"
+                                obl_str = f" ({RAION_TO_OBLAST[n]})" if n in RAION_TO_OBLAST else ""
+                                nb_lines.append(f"• {emoji} <b>{n}</b>{obl_str} ({lvl})")
+                            nb_list_str = "\n".join(nb_lines)
                             warn_msg = (
                                 f"⚠️ <b>РАННЄ ПОПЕРЕДЖЕННЯ: ТРИВОГА В СУСІДНІХ РАЙОНАХ!</b>\n\n"
                                 f"📍 <b>Ваш район:</b> {raion_name} ({res['region_name']})\n"
@@ -2369,6 +2444,29 @@ def run_live_polling(token: str):
                                     "text": alert_text,
                                     "show_alert": True,
                                 })
+                        continue
+
+                    # Add subscription to ALL raions of an entire oblast (Слідкувати за всією областю)
+                    if data.startswith("subreg_"):
+                        region_code = data.replace("subreg_", "")
+                        reg_meta = ALL_REGIONS.get(region_code, {})
+                        reg_name = reg_meta.get("name", region_code)
+                        raions = reg_meta.get("raions", [])
+                        added_count = 0
+                        for r_name in raions:
+                            if sub_manager.add_subscription(chat_id, r_name):
+                                added_count += 1
+                        alert_text = (
+                            f"🔔 Усі райони області «{reg_name}» ({len(raions)} районів) додано до слідкування!\n\n"
+                            f"Бот сповіщатиме про тривоги, рух БпЛА та загрози в сусідніх районах."
+                            if added_count > 0 else
+                            f"ℹ️ Усі райони області «{reg_name}» уже перебувають у списку слідкування."
+                        )
+                        telegram_api_call(token, "answerCallbackQuery", {
+                            "callback_query_id": cq_id,
+                            "text": alert_text,
+                            "show_alert": True,
+                        })
                         continue
 
                     # Set Home Raion

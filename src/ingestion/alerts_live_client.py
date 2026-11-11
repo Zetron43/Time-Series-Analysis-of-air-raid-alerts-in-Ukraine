@@ -47,6 +47,8 @@ class AlertsInUaLiveClient:
 
     _shared_cached_text: Optional[str] = None
     _shared_last_fetch_time: float = 0.0
+    _shared_cached_all_raions: Optional[Dict[str, Dict[str, Any]]] = None
+    _shared_last_all_raions_time: float = 0.0
 
     def __init__(self, cache_ttl_seconds: int = 15):
         self.cache_ttl = cache_ttl_seconds
@@ -359,12 +361,22 @@ class AlertsInUaLiveClient:
     def get_all_raions_live_status(
         self,
         all_regions_dict: Optional[Dict[str, Any]] = None,
+        force_refresh: bool = False,
     ) -> Dict[str, Dict[str, Any]]:
         """Parses the alerts.in.ua sitrep and returns independent alert status for ALL raions of Ukraine.
 
         Guarantees that each raion operates independently: an alert in 1 raion of an oblast
         does NOT taint other raions in that oblast.
         """
+        now = time.time()
+        if (
+            not force_refresh
+            and all_regions_dict is None
+            and AlertsInUaLiveClient._shared_cached_all_raions is not None
+            and (now - AlertsInUaLiveClient._shared_last_all_raions_time < self.cache_ttl)
+        ):
+            return dict(AlertsInUaLiveClient._shared_cached_all_raions)
+
         if all_regions_dict is None:
             from src.bot.interactive_bot import ALL_REGIONS
             all_regions_dict = ALL_REGIONS
@@ -389,6 +401,9 @@ class AlertsInUaLiveClient:
                         "badge": r_item.get("badge", "🟢"),
                         "duration_info": reg_status.get("duration_info", ""),
                     }
+
+        AlertsInUaLiveClient._shared_cached_all_raions = dict(raions_map)
+        AlertsInUaLiveClient._shared_last_all_raions_time = now
         return raions_map
 
     def _find_threats_for_region(self, search_keys: List[str], sec4: str, sec6: str) -> Dict[str, Any]:
