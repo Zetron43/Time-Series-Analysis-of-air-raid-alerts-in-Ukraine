@@ -56,6 +56,7 @@ from src.ingestion.dimap_client import DimapClient
 from src.bot.subscription_manager import UserSubscriptionManager, AutoDeleteManager
 from rendering.alert_map_renderer import AlertMapRenderer
 from src.bot.ai_agent import AirRaidAIAgent
+from src.bot.raion_utils import is_same_raion
 
 RAION_NEIGHBORS_PATH = Path(__file__).resolve().parents[2] / "data" / "raion_neighbors.json"
 
@@ -819,10 +820,10 @@ class ThreatAnalyzer:
         if target_neighbors:
             try:
                 nep_alerts = self.neptun_client.get_alerts()
-                nep_raion_alerts = {
-                    a.get("name", "").lower().replace(" район", "").strip(): a.get("level", "yellow").upper()
+                nep_raion_list = [
+                    (a.get("name", ""), a.get("level", "yellow").upper())
                     for a in nep_alerts.get("raions", [])
-                }
+                ]
 
                 # Retrieve all-raions status across Ukraine
                 all_raions_status = {}
@@ -835,7 +836,6 @@ class ThreatAnalyzer:
                         all_raions_status = {}
 
                 for nb in target_neighbors:
-                    nb_clean = nb.lower().replace(" район", "").strip()
                     nb_lvl = None
 
                     # 1. Background ThreatSyncer check (< 0.001s)
@@ -849,26 +849,24 @@ class ThreatAnalyzer:
 
                     # 2. Ukraine-wide raions status from alerts.in.ua (covers cross-oblast neighbors)
                     if not nb_lvl and all_raions_status:
-                        r_info = all_raions_status.get(nb)
-                        if r_info and r_info.get("active"):
-                            nb_lvl = r_info.get("level", "RED").upper()
-                        else:
-                            for r_full, r_val in all_raions_status.items():
-                                r_c = r_full.lower().replace(" район", "").strip()
-                                if (nb_clean == r_c or nb_clean in r_c) and r_val.get("active"):
-                                    nb_lvl = r_val.get("level", "RED").upper()
-                                    break
+                        for r_full, r_val in all_raions_status.items():
+                            if is_same_raion(nb, r_full) and r_val.get("active"):
+                                nb_lvl = r_val.get("level", "RED").upper()
+                                break
 
                     # 3. Fallback: check current region's live_status (intra-oblast neighbor)
                     if not nb_lvl:
                         for r in live_status.get("raions", []):
-                            if r["name"].lower() == nb.lower() and r.get("active"):
+                            if is_same_raion(nb, r.get("name", "")) and r.get("active"):
                                 nb_lvl = r.get("type", "YELLOW")
                                 break
 
                     # 4. Check Neptun radar alerts (drone threat)
-                    if not nb_lvl and nb_clean in nep_raion_alerts:
-                        nb_lvl = nep_raion_alerts[nb_clean]
+                    if not nb_lvl and nep_raion_list:
+                        for nep_r_name, nep_r_lvl in nep_raion_list:
+                            if is_same_raion(nb, nep_r_name):
+                                nb_lvl = nep_r_lvl
+                                break
 
                     if nb_lvl:
                         neighbors_alarms.append((nb, nb_lvl))

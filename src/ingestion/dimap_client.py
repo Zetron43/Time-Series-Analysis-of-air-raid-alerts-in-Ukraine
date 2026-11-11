@@ -14,6 +14,14 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 try:
+    from src.bot.raion_utils import is_same_raion
+except ImportError:
+    def is_same_raion(n1: str, n2: str) -> bool:
+        if not n1 or not n2:
+            return False
+        return n1.lower().replace(" район", "").strip() == n2.lower().replace(" район", "").strip()
+
+try:
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
 except Exception:
     KYIV_TZ = timezone(timedelta(hours=3))
@@ -63,12 +71,10 @@ class DimapClient:
             return []
 
     def get_raion_status(self, raion_name: str) -> Optional[Dict[str, Any]]:
-        """Finds alert status for a given raion in dimap.live data."""
+        """Finds alert status for a given raion in dimap.live data using strict matching."""
         alerts = self.get_alerts()
-        r_clean = raion_name.lower().replace(" район", "").strip()
-
         for a in alerts:
-            reg = (a.get("region") or "").lower()
-            if r_clean in reg or reg in r_clean:
+            reg = a.get("region") or ""
+            if is_same_raion(raion_name, reg):
                 return a
         return None

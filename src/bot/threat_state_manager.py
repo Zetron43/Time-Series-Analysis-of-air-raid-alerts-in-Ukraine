@@ -20,6 +20,7 @@ from src.ingestion.alerts_live_client import AlertsInUaLiveClient, KYIV_TZ
 from src.ingestion.neptun_client import NeptunClient
 from src.ingestion.dimap_client import DimapClient
 from src.bot.eta_calculator import KinematicETACalculator
+from src.bot.raion_utils import is_same_raion
 
 
 class SharedThreatState:
@@ -216,28 +217,13 @@ class BackgroundThreatSyncer:
     # ---------------- FAST QUERY API ----------------
 
     def get_raion_status(self, raion_name: str) -> Dict[str, Any]:
-        """Returns live alert status for a raion in < 0.001s."""
+        """Returns live alert status for a raion in < 0.001s using strict canonical matching."""
         snap = self.state.get_snapshot()
         alerts_raions = snap["alerts_raions"]
-        clean_target = raion_name.lower().replace(" район", "").strip()
-
-        RAION_ALIASES = {
-            "володимир-волинський": "володимирський",
-            "новоград-волинський": "звягельський",
-            "червоноградський": "шептицький",
-            "новомосковський": "самарівський",
-            "красноградський": "берестинський",
-        }
-        canon_target = RAION_ALIASES.get(clean_target, clean_target)
 
         matched_info = None
         for r_full, info in alerts_raions.items():
-            r_clean = r_full.lower().replace(" район", "").strip()
-            base_name = re.sub(r"\(.*?\)", "", r_clean).strip()
-            parens = [p.strip() for p in re.findall(r"\((.*?)\)", r_clean)]
-            # Strict exact equality matching:
-            # Prevents 'дністровський' from matching 'білгород-дністровський'
-            if canon_target in (r_clean, base_name) or canon_target in parens or clean_target in (r_clean, base_name) or clean_target in parens:
+            if is_same_raion(raion_name, r_full):
                 matched_info = info
                 break
 

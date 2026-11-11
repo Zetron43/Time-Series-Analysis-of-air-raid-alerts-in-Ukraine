@@ -12,12 +12,17 @@ import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
-RAIONS_GEOJSON_PATH = Path(__file__).resolve().parents[2] / "data" / "ukraine_raions.geojson"
-
-RAION_ALIASES = {
-    "володимир-волинський": "володимирський",
-    "новоград-волинський": "звягельський",
-}
+try:
+    from src.bot.raion_utils import is_same_raion, RAION_ALIASES
+except ImportError:
+    RAION_ALIASES = {
+        "володимир-волинський": "володимирський",
+        "новоград-волинський": "звягельський",
+    }
+    def is_same_raion(n1: str, n2: str) -> bool:
+        if not n1 or not n2:
+            return False
+        return n1.lower().replace(" район", "").strip() == n2.lower().replace(" район", "").strip()
 
 
 def haversine_km(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -115,7 +120,7 @@ class KinematicETACalculator:
         if clean in self.centroids:
             return self.centroids[clean]
         for k, v in self.centroids.items():
-            if clean in k or k in clean:
+            if is_same_raion(raion_name, k):
                 return v
         return None
 

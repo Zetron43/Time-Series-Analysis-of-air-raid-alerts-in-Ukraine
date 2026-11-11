@@ -17,6 +17,14 @@ import urllib.request
 from zoneinfo import ZoneInfo
 
 try:
+    from src.bot.raion_utils import is_same_raion
+except ImportError:
+    def is_same_raion(n1: str, n2: str) -> bool:
+        if not n1 or not n2:
+            return False
+        return n1.lower().replace(" район", "").strip() == n2.lower().replace(" район", "").strip()
+
+try:
     KYIV_TZ = ZoneInfo("Europe/Kyiv")
 except Exception:
     KYIV_TZ = timezone(timedelta(hours=3))
@@ -154,12 +162,10 @@ class NeptunClient:
         threats = self.get_threats()
         alerts_data = self.get_alerts()
 
-        # Check alert level in Neptun
-        raion_clean = raion_name.lower().replace(" район", "").strip()
+        # Check alert level in Neptun using strict canonical matching
         matched_alert = None
         for a in alerts_data.get("raions", []):
-            a_name = a.get("name", "").lower()
-            if raion_clean in a_name or a_name in raion_clean:
+            if is_same_raion(raion_name, a.get("name", "")):
                 matched_alert = a
                 break
 
@@ -167,10 +173,10 @@ class NeptunClient:
         local_uavs = []
         for t in threats:
             t_reg = (t.get("region") or "").lower()
-            t_dist = (t.get("district") or "").lower()
-            t_loc = (t.get("locality") or "").lower()
+            t_dist = t.get("district") or ""
+            t_loc = t.get("locality") or ""
 
-            is_in_raion = (raion_clean in t_dist) or (raion_clean in t_loc)
+            is_in_raion = is_same_raion(raion_name, t_dist) or is_same_raion(raion_name, t_loc)
             if is_in_raion:
                 local_uavs.append(t)
 

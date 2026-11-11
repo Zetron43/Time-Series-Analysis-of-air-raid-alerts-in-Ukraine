@@ -12,6 +12,8 @@ import re
 from typing import Any, Dict, List, Optional
 from zoneinfo import ZoneInfo
 
+from src.bot.raion_utils import is_same_raion
+
 KYIV_TZ = ZoneInfo("Europe/Kyiv")
 
 AGENT_SYSTEM_INSTRUCTION = """Ти — спеціалізований оперативний ШІ-агент "Вартовий Неба", військово-аналітичний асистент моніторингу повітряних загроз в Україні.
@@ -101,8 +103,7 @@ class AirRaidAIAgent:
                 # 1. First check if it matches a specific raion directly
                 all_raions_status = client.get_all_raions_live_status()
                 for r_name, r_info in all_raions_status.items():
-                    r_clean = r_name.lower().replace(" район", "").strip()
-                    if rf == r_clean or rf in r_name.lower():
+                    if is_same_raion(rf, r_name):
                         lvl = r_info.get("level", "CLEAR")
                         badge = r_info.get("badge", "🟢")
                         status_str = r_info.get("status", "Спокійно")
