@@ -12,6 +12,8 @@ import math
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
+RAIONS_GEOJSON_PATH = Path(__file__).resolve().parents[2] / "data" / "ukraine_raions.geojson"
+
 try:
     from src.bot.raion_utils import is_same_raion, RAION_ALIASES
 except ImportError:
