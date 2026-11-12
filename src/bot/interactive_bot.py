@@ -1516,14 +1516,24 @@ def send_daily_digest(
     sub_manager: UserSubscriptionManager,
     threat_syncer=None,
     target_chat_id: Optional[int | str] = None,
+    delete_mgr: Optional[AutoDeleteManager] = None,
 ) -> None:
-    """Builds and sends a concise morning safety digest (at 08:00 or on /digest command)."""
+    """Builds and sends a concise morning safety digest (at 08:00 or on /digest command).
+
+    Automatically scheduled for auto-deletion after 30 minutes (1800s).
+    """
     if threat_syncer is None:
         try:
             from src.bot.threat_state_manager import get_threat_syncer
             threat_syncer = get_threat_syncer()
         except Exception:
             threat_syncer = None
+
+    if delete_mgr is None:
+        try:
+            delete_mgr = AutoDeleteManager()
+        except Exception:
+            delete_mgr = None
 
     now_kyiv = datetime.now(KYIV_TZ)
     snap = threat_syncer.state.get_snapshot() if (threat_syncer and hasattr(threat_syncer, "state")) else {}
@@ -1564,7 +1574,8 @@ def send_daily_digest(
         if subs:
             lines.append("🔔 <b>Підписки:</b> " + ", ".join(subs[:6]))
 
-        lines.append("\n🛡 <i>Бажаємо спокійного та безпечного дня! Бот на варті 24/7.</i>")
+        lines.append("\n🛡 <i>Бажаємо спокійного та безпечного дня! Бот на варті 24/7.</i>\n")
+        lines.append("⏱ <i>Повідомлення буде автоматично видалено через 30 хвилин.</i>")
         d_text = "\n".join(lines)
         kb = {
             "inline_keyboard": [
@@ -1572,12 +1583,15 @@ def send_daily_digest(
                 [{"text": "📍 Меню районів", "callback_data": "menu_zones"}],
             ]
         }
-        telegram_api_call(token, "sendMessage", {
+        send_res = telegram_api_call(token, "sendMessage", {
             "chat_id": cid,
             "text": d_text,
             "parse_mode": "HTML",
             "reply_markup": kb,
         })
+        if send_res.get("ok") and delete_mgr is not None:
+            sent_mid = send_res["result"]["message_id"]
+            delete_mgr.schedule_deletion(cid, sent_mid, delay_seconds=1800, raion_name="digest")
 
 
 def run_subscriptions_watcher(
@@ -1604,10 +1618,10 @@ def run_subscriptions_watcher(
 
     while not stop_event.is_set():
         try:
-            # Check and delete expired alarm messages (>= 1 hour)
+            # Check and delete expired messages (alarms: 1 hour, digests: 30 minutes)
             deleted = delete_mgr.process_pending(lambda method, payload: telegram_api_call(token, method, payload))
             if deleted > 0:
-                print(f"[+] Автоматично видалено {deleted} застарілих повідомлень тривоги (1-годинний таймер).", flush=True)
+                print(f"[+] Автоматично видалено {deleted} застарілих повідомлень (таймер самовидалення).", flush=True)
 
             # Daily Morning Digest at 08:00 (between 08:00 and 08:10)
             now_kyiv = datetime.now(KYIV_TZ)
@@ -1616,7 +1630,7 @@ def run_subscriptions_watcher(
                 last_digest_date = today_str
                 try:
                     from src.bot.threat_state_manager import get_threat_syncer
-                    send_daily_digest(token, sub_manager, get_threat_syncer())
+                    send_daily_digest(token, sub_manager, get_threat_syncer(), delete_mgr=delete_mgr)
                     print(f"[+] Ранковий дайджест о 08:00 успішно надіслано підписникам.", flush=True)
                 except Exception as d_exc:
                     print(f"[-] Помилка розсилки ранкового дайджесту: {d_exc}", flush=True)
@@ -2222,7 +2236,7 @@ def run_live_polling(token: str):
                     # Command: Morning Digest on demand
                     if text in ["/digest", "/дайджест", "🌅 Дайджест", "дайджест"]:
                         clear_prev_menu()
-                        send_daily_digest(token, sub_manager, threat_syncer, target_chat_id=chat_id)
+                        send_daily_digest(token, sub_manager, threat_syncer, target_chat_id=chat_id, delete_mgr=delete_mgr)
                         continue
 
                     # Command: Home Raion Quick Access
