@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Tuple
 
 RAIONS_GEOJSON_PATH = Path(__file__).resolve().parents[2] / "data" / "ukraine_raions.geojson"
+MAX_PLAUSIBLE_SPEED_KMH = 900.0  # EW/РЕБ spoofing filter cap
 
 try:
     from src.bot.raion_utils import is_same_raion, RAION_ALIASES
@@ -176,6 +177,9 @@ class KinematicETACalculator:
 
             heading = t.get("heading")
             speed = float(t.get("speed_kmh") or default_speed_kmh)
+            # Physical kinematic filter: discard sensor jumps / EW spoofing > 900 km/h
+            if speed > MAX_PLAUSIBLE_SPEED_KMH:
+                continue
             count = int(t.get("count", 1) or 1)
             is_confirmed = t.get("is_confirmed", False) or t.get("lifecycle") == "confirmed"
 

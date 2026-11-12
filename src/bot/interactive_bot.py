@@ -57,6 +57,8 @@ from src.bot.subscription_manager import UserSubscriptionManager, AutoDeleteMana
 from rendering.alert_map_renderer import AlertMapRenderer
 from src.bot.ai_agent import AirRaidAIAgent
 from src.bot.raion_utils import is_same_raion
+from src.bot.ml_predictor import get_threat_ml_predictor
+from src.bot.consensus_engine import MultiSourceConsensusVerifier
 
 RAION_NEIGHBORS_PATH = Path(__file__).resolve().parents[2] / "data" / "raion_neighbors.json"
 
@@ -453,6 +455,10 @@ def compute_dynamic_operational_probability(
     neighbors_alarms_count: int = 0,
     is_official_alarm: bool = False,
     is_radar_warning: bool = False,
+    min_eta_minutes: Optional[float] = None,
+    min_dist_km: Optional[float] = None,
+    direct_threats_count: int = 0,
+    tangent_threats_count: int = 0,
 ) -> Tuple[float, str]:
     """Calculates realistic survival/arrival probability based on threat type, region geometry, raion locality, and drone scale."""
     west_regions = {"lviv", "volyn", "rivne", "ternopil", "ivano_frankivsk", "khmelnytskyi", "zakarpattia", "chernivtsi"}
@@ -466,6 +472,27 @@ def compute_dynamic_operational_probability(
     drone_active = shahed.get("active", False)
     ballistic_active = threats.get("ballistics", {}).get("active", False)
     mig31_active = threats.get("mig31", {}).get("active", False)
+
+    # 1. Genuine LightGBM Booster Inference when raion is specified and ML predictor is loaded
+    if raion_name:
+        try:
+            ml_pred = get_threat_ml_predictor()
+            if ml_pred.is_available():
+                prob_ml, expl_ml = ml_pred.predict_threat_probability(
+                    raion_name=raion_name,
+                    horizon_minutes=horizon_minutes,
+                    is_alert_active=is_official_alarm,
+                    neighbor_active_count=neighbors_alarms_count,
+                    incoming_drones=1 if (drone_active or is_radar_warning) else 0,
+                    min_eta_minutes=min_eta_minutes,
+                    min_dist_km=min_dist_km,
+                    direct_threats_count=direct_threats_count,
+                    tangent_threats_count=tangent_threats_count,
+                )
+                if prob_ml is not None:
+                    return prob_ml, expl_ml
+        except Exception:
+            pass
 
     # Specific raion evaluation
     if raion_name:
@@ -873,24 +900,11 @@ class ThreatAnalyzer:
             except Exception:
                 pass
 
-        # 4. Dynamic operational probability calculation
-        overall_prob, prob_expl = compute_dynamic_operational_probability(
-            region_code=region_code,
-            horizon_minutes=horizon_info["minutes"],
-            live_status=live_status,
-            threats=threat_details,
-            raion_name=raion_name,
-            raion_status=raion_status_val,
-            neighbors_alarms_count=len(neighbors_alarms),
-            is_official_alarm=is_official_alarm,
-            is_radar_warning=has_radar_warning,
-        )
-
-        # 5. Drone classification (confirmed radar vs probable / acoustic)
+        # 4. Drone classification (confirmed radar vs probable / acoustic)
         classified_local = self.neptun_client.classify_drones(local_uavs)
         countrywide_drones = self.neptun_client.classify_drones()
 
-        # 4. Kinematic approach and ETA calculation
+        # 5. Kinematic approach and ETA calculation
         eta_info = None
         if raion_name:
             if self.threat_syncer:
@@ -905,12 +919,47 @@ class ThreatAnalyzer:
                 except Exception:
                     pass
 
+        # 6. Multi-Source Consensus Verification (Rule: >= 2 sources required for confirmed alarm)
+        consensus_info = MultiSourceConsensusVerifier.verify_raion_consensus(
+            raion_name=raion_name or region_name,
+            is_official_alert=is_official_alarm,
+            radar_threats_present=has_radar_warning or (len(local_uavs) > 0),
+            dimap_alert_present=bool(raion_status_val in ["RED", "YELLOW"]),
+            osint_warning_present=bool(threat_details.get("shahed", {}).get("active", False)),
+            radar_confirmed_flag=bool(classified_local["confirmed_count"] > 0),
+        )
+
+        min_eta_val = eta_info.get("min_eta_minutes") if eta_info else None
+        min_dist_val = eta_info.get("min_distance_km") if eta_info else None
+        direct_cnt = 1 if (eta_info and eta_info.get("has_direct_threat")) else 0
+        tangent_cnt = 0
+
+        # 7. Dynamic operational probability calculation (LightGBM v3 Booster + Kinematic Gating)
+        overall_prob, prob_expl = compute_dynamic_operational_probability(
+            region_code=region_code,
+            horizon_minutes=horizon_info["minutes"],
+            live_status=live_status,
+            threats=threat_details,
+            raion_name=raion_name,
+            raion_status=raion_status_val,
+            neighbors_alarms_count=len(neighbors_alarms),
+            is_official_alarm=is_official_alarm,
+            is_radar_warning=has_radar_warning,
+            min_eta_minutes=min_eta_val,
+            min_dist_km=min_dist_val,
+            direct_threats_count=direct_cnt,
+            tangent_threats_count=tangent_cnt,
+        )
+
         return {
             "region_code": region_code,
             "region_name": region_name,
             "raion_name": raion_name,
             "raion_item": raion_item,
             "eta_info": eta_info,
+            "consensus_info": consensus_info,
+            "is_consensus_verified": consensus_info["is_consensus_verified"],
+            "consensus_badge": consensus_info["badge"],
             "is_official_alarm": is_official_alarm,
             "has_radar_warning": has_radar_warning,
             "neighbors_alarms": neighbors_alarms,
@@ -1725,6 +1774,7 @@ def run_subscriptions_watcher(
                                 f"📡 <b>Статус:</b> 🟡 <b>Превентивна загроза</b> (сирени в районі ще <u>НЕ лунають</u>!)\n"
                                 f"⚠️ <b>Рівень небезпеки:</b> {lvl_badge}{drone_info_str}{eta_str}\n\n"
                                 f"📊 <b>Ризик оголошення тривоги / підльоту:</b> <b>{res['overall_probability']*100:.1f}%</b>\n"
+                                f"🛡 <b>Крос-валідація джерел:</b> {res.get('consensus_badge', '🟢 Верифіковано')}\n"
                                 f"💡 <i>{res['prob_explanation']}</i>\n\n"
                                 f"⚠️ <i>Будьте напоготові, слідкуйте за офіційними сигналами та перевірте найближче укриття!</i>\n\n"
                                 f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"
@@ -1765,6 +1815,7 @@ def run_subscriptions_watcher(
                                 f"📡 <b>Статус:</b> 🟢 <b>У вашому районі сирени не лунають</b>, але тривогу оголошено поруч ({nb_count} районів):\n"
                                 f"{nb_list_str}\n\n"
                                 f"📊 <b>Ризик поширення тривоги на ваш район:</b> <b>{res['overall_probability']*100:.1f}%</b>\n"
+                                f"🛡 <b>Крос-валідація джерел:</b> {res.get('consensus_badge', '🟢 Верифіковано')}\n"
                                 f"💡 <i>{res['prob_explanation']}</i>\n\n"
                                 f"⚠️ <i>Будьте уважні до сигналів тривоги та перевірте найближче укриття!</i>\n\n"
                                 f"⏱ <i>Повідомлення буде автоматично видалено через 1 годину.</i>"

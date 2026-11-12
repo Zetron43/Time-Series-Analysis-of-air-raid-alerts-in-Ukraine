@@ -570,7 +570,7 @@ def test_get_all_raions_live_status_independence():
 """
     client.fetch_live_sitrep = lambda force_refresh=False: mock_sitrep
 
-    all_raions = client.get_all_raions_live_status()
+    all_raions = client.get_all_raions_live_status(force_refresh=True)
 
     # Dnistrovskyi is YELLOW, Chernivetskyi and Vyzhnytskyi are CLEAR
     assert all_raions["Дністровський район"]["active"] is True
