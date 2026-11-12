@@ -33,3 +33,9 @@ rendering/live_threats_map.png
 project_dialogue_log.docx
 project_dialogue_log.txt
 *.docx
+
+# Documentation and Presentations (kept locally only)
+docs/
+*.pptx
+*.docx
+
